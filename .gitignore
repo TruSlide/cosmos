@@ -1,0 +1,9 @@
+# Your own data: never commit it
+cache/
+settings.json
+recordings/
+
+# OS and editor clutter
+.DS_Store
+*.log
+.claude-plugin/types/

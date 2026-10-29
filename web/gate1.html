@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cosmos · Gate 1</title>
+  <script type="importmap">
+  { "imports": {
+      "three": "/vendor/three/build/three.module.js",
+      "three/addons/": "/vendor/three/addons/"
+  } }
+  </script>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { height: 100%; margin: 0; overflow: hidden; background: #02030a; }
+    body {
+      font: 12px/1.35 system-ui, -apple-system, sans-serif;
+      color: rgba(255, 255, 255, 0.6);
+      letter-spacing: 0.04em;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
+    #cosmos { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; touch-action: none; outline: none; }
+
+    /* Scene name: bottom-left, quiet (ART_DIRECTION §7: no other HUD). */
+    #label { position: fixed; bottom: 40px; left: 20px; pointer-events: none; transition: bottom 0.4s; }
+    #state { font-size: 12px; font-weight: 600; letter-spacing: 0.22em; color: rgba(255, 255, 255, 0.72); }
+    #note { margin-top: 3px; font-size: 11px; color: rgba(255, 255, 255, 0.42); letter-spacing: 0.06em; }
+
+    /* DEMO marker: this gallery runs on scripted SystemState, not real data. */
+    #demo {
+      position: fixed; top: 16px; right: 18px; pointer-events: none;
+      padding: 4px 10px; border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 11px; font-weight: 600; letter-spacing: 0.18em;
+      background: rgba(2, 3, 10, 0.35);
+    }
+
+    /* Controls: bottom-left, small and minimal. */
+    #bar {
+      position: fixed; left: 16px; bottom: 14px; right: 16px;
+      display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+    /* Auto-hidden after 3 s without pointer or key input; keys cover every scene. */
+    #bar.hidden { opacity: 0; }
+    #bar.hidden > * { pointer-events: none; }
+    #bar > * { pointer-events: auto; }
+    #bar button {
+      font: inherit; font-size: 11px; letter-spacing: 0.05em;
+      color: rgba(255, 255, 255, 0.55);
+      background: rgba(2, 3, 10, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 4px; padding: 3px 8px; cursor: pointer;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    #bar button:hover { color: rgba(255, 255, 255, 0.85); border-color: rgba(255, 255, 255, 0.3); }
+    #bar button:focus-visible { outline: 1px solid rgba(207, 224, 255, 0.7); outline-offset: 1px; }
+    #bar button.on { color: rgba(255, 255, 255, 0.92); border-color: rgba(207, 224, 255, 0.55); background: rgba(207, 224, 255, 0.08); }
+    #scenes { display: contents; }
+    .sep { width: 1px; height: 14px; background: rgba(255, 255, 255, 0.14); margin: 0 4px; }
+
+    /* Reel progress: a hairline along the bottom edge. */
+    #track { position: fixed; left: 0; right: 0; bottom: 0; height: 2px; pointer-events: none; }
+    #progress { height: 100%; background: rgba(207, 224, 255, 0.35); transform-origin: 0 50%; transform: scaleX(0); }
+  </style>
+</head>
+<body>
+  <canvas id="cosmos" tabindex="0" aria-label="One Cosmos star system"></canvas>
+
+  <div id="label" aria-live="polite">
+    <div id="state">&nbsp;</div>
+    <div id="note"></div>
+  </div>
+
+  <div id="demo" title="Driven by scripted SystemState values, not real session data">DEMO · scripted states</div>
+
+  <nav id="bar" aria-label="Gate 1 states">
+    <button type="button" id="play" aria-pressed="false" title="Play / pause (Space)">Pause</button>
+    <button type="button" id="reel" title="Play the full looping sequence (R)">Sequence</button>
+    <span class="sep" aria-hidden="true"></span>
+    <span id="scenes"></span>
+    <span class="sep" aria-hidden="true"></span>
+    <button type="button" id="mono" title="Grayscale check: states must read without color (M)">B/W</button>
+  </nav>
+  <div id="track" aria-hidden="true"><div id="progress"></div></div>
+
+  <script>
+    // Bar auto-hide: shown on pointer movement or a key press, hidden after 3 s.
+    (() => {
+      const bar = document.getElementById('bar');
+      const label = document.getElementById('label');
+      let timer = 0;
+      // The label sits just above the bar while it shows, near the edge when hidden.
+      const place = () => {
+        label.style.bottom = (bar.classList.contains('hidden') ? 20 : bar.offsetHeight + 24) + 'px';
+      };
+      new MutationObserver(place).observe(bar, { attributes: true, attributeFilter: ['class'] });
+      window.addEventListener('resize', place);
+      const show = () => {
+        bar.classList.remove('hidden');
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          if (!bar.contains(document.activeElement) && !bar.matches(':hover')) bar.classList.add('hidden');
+          else show();
+        }, 3000);
+      };
+      window.addEventListener('pointermove', show, { passive: true });
+      window.addEventListener('pointerdown', show, { passive: true });
+      window.addEventListener('keydown', show);
+      show();
+    })();
+  </script>
+  <script type="module" src="./src/gate1.js"></script>
+</body>
+</html>

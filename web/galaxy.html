@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="cosmos-token" content="__COSMOS_TOKEN__">
+  <title>Cosmos</title>
+  <script type="importmap">
+  { "imports": {
+      "three": "/vendor/three/build/three.module.js",
+      "three/addons/": "/vendor/three/addons/"
+  } }
+  </script>
+  <link rel="stylesheet" href="/web/hud.css">
+  <link rel="stylesheet" href="/web/src/hud/lens.css">
+  <style>
+    /* Page skeleton (GALAXY_CONTRACT §9). Region contents and their styling
+       belong to the HUD and LENS builders; tokens live in hud.css. */
+    html, body { height: 100%; margin: 0; overflow: hidden; background: #02030a; }
+    body {
+      font: 12px/1.35 system-ui, -apple-system, "SF Pro Text", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
+    #cosmos {
+      position: fixed; inset: 0; width: 100vw; height: 100vh; display: block;
+      touch-action: none; outline: none; z-index: 0;
+    }
+    #overlay { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
+    #overlay > * { position: absolute; inset: 0; pointer-events: none; }
+    #labels { z-index: 10; }
+    #edge-markers { z-index: 35; }   /* above the HUD: a needs-me marker is never hidden */
+    #hud { z-index: 30; }
+    #popup { z-index: 40; }
+    #diagnostics { z-index: 50; }
+    #modal-root { z-index: 60; }
+    #toasts { z-index: 70; }
+
+    /* Needs-me edge markers (GALAXY): a chevron pointing at an off-screen
+       quasar, the hourglass glyph and the wait time. The reserved colour is
+       set on #edge-markers by beacons.js from the palette (--cz-needs). */
+    .cz-edge {
+      position: absolute; left: 0; top: 0;
+      width: 52px; height: 24px; margin: -12px 0 0 -26px;
+      display: flex; align-items: center; justify-content: center; gap: 4px;
+      box-sizing: border-box; border-radius: 12px;
+      background: rgba(2, 3, 10, 0.72);
+      border: 1px solid var(--cz-needs);
+      color: var(--cz-needs-core);
+      font: 600 11px/1 system-ui, -apple-system, sans-serif;
+      letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
+      pointer-events: auto; cursor: pointer;
+      will-change: transform;
+    }
+    .cz-edge:focus-visible { outline: 2px solid var(--cz-needs-core); outline-offset: 2px; }
+    .cz-edge-chev {
+      position: absolute; left: 50%; top: 50%;
+      width: 0; height: 0; margin: -6px 0 0 -4px;
+      border-top: 6px solid transparent; border-bottom: 6px solid transparent;
+      border-left: 9px solid var(--cz-needs);
+      transform-origin: 4px 6px;
+    }
+    .cz-edge-glyph { width: 10px; height: 14px; flex: none; fill: var(--cz-needs); animation: cz-quasar 2.4s infinite; }
+    .cz-edge-glyph .cz-edge-core { fill: var(--cz-needs-core); }
+    .cz-edge-wait { min-width: 18px; text-align: left; }
+    /* The quasar's pulse: quick swell, long exhale (only needs-me pulses). */
+    @keyframes cz-quasar {
+      0%, 100% { opacity: 0.55; transform: scale(0.92); }
+      18% { opacity: 1; transform: scale(1.08); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .cz-edge-glyph { animation: none; opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="cosmos" aria-label="Cosmos: every Claude Code session on this Mac as a star system"></canvas>
+  <div id="overlay">
+    <div id="labels"></div>
+    <div id="edge-markers" aria-label="Sessions that need you, off screen"></div>
+    <div id="hud">
+      <header id="topbar"></header>
+      <section id="panel-needs"></section> <section id="panel-live"></section>
+      <section id="panel-feed"></section> <section id="panel-selected"></section>
+      <section id="panel-totals"></section> <div id="minimap"></div>
+      <div id="scrubber"></div>
+    </div>
+    <div id="popup"></div>
+    <div id="diagnostics"></div>
+    <div id="modal-root"></div>
+    <div id="toasts"></div>
+  </div>
+  <script type="module" src="/web/src/galaxy/main.js"></script>
+</body>
+</html>
