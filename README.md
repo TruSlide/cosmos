@@ -2,7 +2,9 @@
 
 **A live 3D galaxy of your Claude Code sessions.** Every session is a star system, every project is a spiral arm, and anything that needs your answer lights up as a neon-orange quasar you can spot from anywhere.
 
-![A session that needs you: the hourglass quasar](screens/1-needs-me-hourglass-quasar.jpg)
+![A session that needs you becomes a neon-orange quasar](media/cosmos-quasar.gif)
+
+**[▶ Watch the 38-second demo (MP4)](media/cosmos-demo.mp4)**
 
 Cosmos runs entirely on your Mac. It reads the session files Claude Code already writes, so it costs **zero tokens** to run, and it never changes your sessions.
 
@@ -39,6 +41,7 @@ Press **?** inside Cosmos for the full legend.
 - **Analysis & Diagnostic:** click an error to see what happened in plain English. **Show the error** reveals the real error text with the important parts explained. **Explain with Claude** gives a short lesson (this one button uses a few tokens and tells you how many).
 - **Sound (optional):** real NASA space recordings as an ambient bed, and Sputnik's beep when a session needs you.
 - **Settings panel**, including an optional "Open Cosmos?" prompt when you start a session.
+- **Record button:** capture the 3D view as a video to share. It records only the universe, never panels or labels, so session names stay private. Clips save to `cosmos/recordings/`.
 
 ## Run it
 

@@ -6,6 +6,7 @@
 // an event's `src` (transcript byte position); only diag.mjs uses it.
 
 import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import { FEED_TYPES, DIAG_TYPES, EV } from '../web/src/shared/schema.mjs';
 import { SETTINGS_DEFAULTS, validateSettings, validateLimits } from '../web/src/shared/settings.mjs';
@@ -401,6 +402,37 @@ export function createApi({
     return false;
   }
 
+  // Recordings from the Record button: written ONLY to <root>/recordings/ (WRITES LIST W14).
+  const RECORDING_MAX = 1024 * 1024 * 1024;   // 1 GB
+  async function saveRecording(req, res) {
+    const host = String(req.headers.host || '').toLowerCase();
+    const origin = String(req.headers.origin || '').toLowerCase();
+    const ct = String(req.headers['content-type'] || '').toLowerCase();
+    const okHeaders = security.hostOk(req) && origin === `http://${host}`
+      && (ct.startsWith('video/webm') || ct.startsWith('video/mp4'))
+      && security.postOk({ headers: { ...req.headers, 'content-type': 'application/json' } });
+    if (!okHeaders) { req.resume(); fail(res, 403, 'forbidden', 'This recording did not come from a Cosmos page.'); return; }
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > RECORDING_MAX) { req.resume(); fail(res, 413, 'too-large', 'Recordings are limited to 1 GB.'); return; }
+    const dir = path.join(root, 'recordings');
+    await fs.promises.mkdir(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const ext = ct.startsWith('video/mp4') ? 'mp4' : 'webm';
+    const file = path.join(dir, `cosmos-${stamp}.${ext}`);
+    const out = fs.createWriteStream(file, { flags: 'wx' });
+    let size = 0; let over = false;
+    await new Promise((resolve) => {
+      req.on('data', (c) => {
+        size += c.length;
+        if (size > RECORDING_MAX && !over) { over = true; req.unpipe(out); out.destroy(); fs.promises.rm(file, { force: true }); }
+      });
+      req.pipe(out);
+      out.on('finish', resolve); out.on('close', resolve); req.on('error', resolve);
+    });
+    if (over) { fail(res, 413, 'too-large', 'Recordings are limited to 1 GB.'); return; }
+    json(res, 200, { ok: true, file: path.relative(root, file), bytes: size });
+  }
+
   async function route(req, res, url) {
     const p = url.pathname;
     const m = req.method;
@@ -461,6 +493,8 @@ export function createApi({
       fail(res, 404, 'not-found', 'No such API endpoint.');
       return;
     }
+
+    if (m === 'POST' && p === '/api/recordings') { await saveRecording(req, res); return; }
 
     if (m === 'POST') {
       if (!security.postOk(req)) { req.resume(); fail(res, 403, 'forbidden', 'This request did not come from the Cosmos page.'); return; }

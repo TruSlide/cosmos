@@ -36,6 +36,7 @@ const CACHE_DIR = path.join(ROOT, 'cache');
 const SETTINGS_PATH = path.join(ROOT, 'settings.json');
 const LIMITS_PATH = path.join(ROOT, 'limits.json');
 const GALAXY_PAGE = path.join(ROOT_REAL, 'web', 'galaxy.html');
+const GATE1_PAGE = path.join(ROOT_REAL, 'web', 'gate1.html');
 // The only two trees the browser may read. Checked AFTER decoding and realpath,
 // so an encoded slash ('/web/..%2Fcache') cannot step outside them.
 const SERVE_ROOTS = ['web', 'vendor'].map((d) => {
@@ -176,9 +177,9 @@ api = createApi({
 });
 
 /** The galaxy page, with this run's token in its meta tag. Never cached. */
-async function sendGalaxyPage(req, res) {
+async function sendGalaxyPage(req, res, file = GALAXY_PAGE) {
   let html;
-  try { html = await fs.promises.readFile(GALAXY_PAGE, 'utf8'); } catch {
+  try { html = await fs.promises.readFile(file, 'utf8'); } catch {
     send(res, 404, 'Not found');
     return;
   }
@@ -238,8 +239,8 @@ const server = http.createServer(async (req, res) => {
       send(res, found.status, STATUS_TEXT[found.status] ?? 'Error');
       return;
     }
-    if (found.file === GALAXY_PAGE) {
-      await sendGalaxyPage(req, res);
+    if (found.file === GALAXY_PAGE || found.file === GATE1_PAGE) {
+      await sendGalaxyPage(req, res, found.file);
       return;
     }
 

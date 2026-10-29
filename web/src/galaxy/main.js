@@ -6,6 +6,7 @@
 // never stored anywhere else.
 
 import { createSound } from '../hud/sound.js';
+import { createRecorder } from '../hud/recorder.js';
 import { createEngine } from '../engine.js';
 import { createClientStore } from './store.js';
 import { createGalaxy } from './galaxy.js';
@@ -150,6 +151,7 @@ function boot() {
 
     // Sound (off until Settings > Sound is on).
     dbg.sound = createSound(store);
+    dbg.recorder = createRecorder(engine.renderer.domElement, { token });
 
     // 9. Wake hooks + the needs-me latency proof.
     store.on('needs-me', (e) => {

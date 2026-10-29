@@ -20,6 +20,7 @@
 
 import * as THREE from 'three';
 import { createEngine } from './engine.js';
+import { createRecorder } from './hud/recorder.js';
 import { StarSystem } from './system.js';
 import { hash01, smoothstep } from './lib/math.js';
 import { loadReplay, createReplayScene } from './replay.js';
@@ -582,6 +583,7 @@ const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('cosmos');
 const quality = ['high', 'medium', 'low'].includes(params.get('quality')) ? params.get('quality') : 'high';
 const engine = createEngine(canvas, { quality });
+const recorder = createRecorder(canvas);
 
 const director = new Director();
 const startKey = params.get('scene');
@@ -770,6 +772,7 @@ window.addEventListener('keydown', (e) => {
 // Debugging handle (CONTRACT §0 allows this one global).
 window.__cosmos = {
   engine,
+  recorder,
   get system() { return system; },
   director,
   setScene(name) { if (name === 'life') director.playSequence(); else director.hold(name); },
