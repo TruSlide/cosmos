@@ -18,20 +18,20 @@
 //   warm). Resuming from saved offsets would also need the per-session internals
 //   (dedupe sets, pending tools, tails), which the snapshot cache does not hold.
 
-import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createReader } from './reader.mjs';
 import {
   MODE, SUB, BADGE, REMNANT, ORIGIN, EV, DAY_S, eventId, idleFraction, idleK,
 } from '../web/src/shared/schema.mjs';
-import { SETTINGS_DEFAULTS } from '../web/src/shared/settings.mjs';
 
-const COSMOS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const DEFAULT_LIMITS = Object.freeze({
-  v: 1, default: 200000,
-  rules: [{ match: 'claude-*-5-5', limit: 1000000 }, { match: '*[1m]', limit: 1000000 }],
-});
+import {
+  COSMOS_ROOT, DEFAULT_LIMITS, globToRegExp, contextLimit, stripWorktree, worktreeName, longestPrefix,
+  mergeSettings, loadLimits, dayStart, localDayString, ms, lowerBound, insertSorted,
+} from './model-helpers.mjs';
+import { createArms } from './model-arms.mjs';
+
+export { DEFAULT_LIMITS, globToRegExp, contextLimit, stripWorktree, worktreeName, longestPrefix };
+
 const ASK_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
 const ARCHIVE_TOOL = 'mcp__ccd_session_mgmt__archive_session';
 const AGENT_TOOLS = new Set(['Agent', 'Task']);
@@ -46,95 +46,6 @@ const FILES_MAX = 200;
 const FILES_LITE = 24;
 
 // ---------------------------------------------------------------------------
-// Pure helpers (exported for tests)
-
-/** Glob with `*` only, everything else literal. */
-export function globToRegExp(glob) {
-  const esc = String(glob).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-  return new RegExp(`^${esc}$`);
-}
-/** Context limit for a model: first matching rule, else default; raised to observedPeak / 0.97. */
-export function contextLimit(model, limits, observedPeak = 0) {
-  const L = limits && Array.isArray(limits.rules) ? limits : DEFAULT_LIMITS;
-  let base = Number.isFinite(L.default) ? L.default : DEFAULT_LIMITS.default;
-  if (model) {
-    for (const r of L.rules) {
-      if (r && typeof r.match === 'string' && Number.isFinite(r.limit) && globToRegExp(r.match).test(model)) { base = r.limit; break; }
-    }
-  }
-  return Math.max(base, Math.ceil((observedPeak || 0) / 0.97));
-}
-/** Strip `/.claude/worktrees/<name>` and everything after it. */
-export function stripWorktree(cwd) {
-  return typeof cwd === 'string' ? cwd.replace(/\/\.claude\/worktrees\/.*$/, '') : cwd;
-}
-export function worktreeName(cwd) {
-  const m = typeof cwd === 'string' ? /\/\.claude\/worktrees\/([^/]+)/.exec(cwd) : null;
-  return m ? m[1] : null;
-}
-/** Longest candidate that equals or prefixes `dir` (on a path boundary); else `dir`. */
-export function longestPrefix(dir, candidates) {
-  let best = null;
-  for (const c of candidates) {
-    if (!c) continue;
-    if ((dir === c || dir.startsWith(c.endsWith('/') ? c : c + '/')) && (!best || c.length > best.length)) best = c;
-  }
-  return best || dir;
-}
-
-function mergeSettings(s) {
-  const out = {};
-  for (const [k, v] of Object.entries(SETTINGS_DEFAULTS)) {
-    const o = s && s[k];
-    out[k] = v && typeof v === 'object' && !Array.isArray(v) ? { ...v, ...(o && typeof o === 'object' ? o : {}) } : (o ?? v);
-  }
-  return out;
-}
-
-function loadLimits(limitsPath) {
-  if (!limitsPath) return DEFAULT_LIMITS;
-  try {
-    const j = JSON.parse(fs.readFileSync(limitsPath, 'utf8'));
-    if (j && Array.isArray(j.rules)) return j;
-  } catch (err) {
-    if (err && err.code === 'ENOENT') {
-      // DATA-CORE writes the default file once, if missing (GALAXY_CONTRACT §3.2). Cosmos folder only.
-      if (path.resolve(limitsPath).startsWith(COSMOS_ROOT + path.sep)) {
-        try {
-          const tmp = `${limitsPath}.tmp`;
-          fs.writeFileSync(tmp, JSON.stringify(DEFAULT_LIMITS, null, 2) + '\n', { flag: 'wx' });
-          fs.renameSync(tmp, limitsPath);
-        } catch { /* another writer won, or read-only: defaults still apply */ }
-      }
-    }
-  }
-  return DEFAULT_LIMITS;
-}
-
-const dayCache = new Map();
-/** Local midnight (epoch s) of t, memoised per hour. */
-function dayStart(t) {
-  const h = Math.floor(t / 3600);
-  let d = dayCache.get(h);
-  if (d === undefined) {
-    const x = new Date(t * 1000); x.setHours(0, 0, 0, 0);
-    d = x.getTime() / 1000;
-    if (dayCache.size > 20000) dayCache.clear();
-    dayCache.set(h, d);
-  }
-  return d;
-}
-function localDayString(t) {
-  const d = new Date(t * 1000);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-const ms = (t) => Math.round(t * 1000);
-function lowerBound(arr, x) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < x) lo = m + 1; else hi = m; } return lo; }
-function insertSorted(arr, x) { if (!arr.length || arr[arr.length - 1] <= x) arr.push(x); else arr.splice(lowerBound(arr, x), 0, x); }
-
-// ---------------------------------------------------------------------------
-
-const ARM_MIN_WEIGHT = 3;
 
 export function createModel(opts = {}) {
   const clock = opts.clock || (() => Date.now() / 1000);
@@ -144,6 +55,8 @@ export function createModel(opts = {}) {
   const excludePrefix = opts.excludeCwdPrefix ?? path.join(COSMOS_ROOT, 'cache') + '/';
   const limitsPath = opts.limitsPath === undefined ? path.join(COSMOS_ROOT, 'limits.json') : opts.limitsPath;
   let settings = mergeSettings(opts.settings);
+  const arms = createArms({ getSettings: () => settings, sessions: () => S.values() });
+  const { armOf } = arms;
   let limits = loadLimits(limitsPath);
 
   // ----- global state
@@ -159,9 +72,7 @@ export function createModel(opts = {}) {
   const registryBySid = new Map();
   let registryList = [];
   let s6 = new Map();
-  let projectKeys = [];
   const titleFiles = new Map();     // sid -> { customTitle, released }
-  const rootCache = new Map();      // dir -> bool (has .git or CLAUDE.md)
   const evIndex = new Map();        // id -> event (last 7 days)
   let backfilling = true;
   const bf = new Map();             // backfill events by id
@@ -815,7 +726,7 @@ export function createModel(opts = {}) {
     if (!backfilling) flushChanges();
   }
   function onProjects(keys) {
-    projectKeys = keys.map(stripWorktree);
+    arms.setProjectKeys(keys);
     for (const s of S.values()) touch(s);
     if (!backfilling) flushChanges();
   }
@@ -823,92 +734,6 @@ export function createModel(opts = {}) {
   // =====================================================================
   // Identity: title, origin, arm
 
-  function isProjectRoot(dir) {
-    if (!dir) return false;
-    let v = rootCache.get(dir);
-    if (v === undefined) {
-      v = fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, 'CLAUDE.md'));
-      rootCache.set(dir, v);
-    }
-    return v;
-  }
-  /** Arm = the project the work actually happened in (DATA_SPEC §8, owner
-   *  feedback): sessions are often started in a container folder (no .git, no
-   *  CLAUDE.md, e.g. "Side Projects") but work inside one of its subfolders.
-   *  1. candidates: known project dirs + settings.arms keys (owner overrides,
-   *     which may name a subfolder) + project roots seen as a cwd;
-   *  2. when the best candidate for the cwd is a container, its first-level
-   *     subfolders are candidates too;
-   *  3. the candidate holding most of the session's file work (edits weigh 3,
-   *     reads 1; at least ARM_MIN_WEIGHT and over half) wins, else the cwd's. */
-  function armCandidates() {
-    const cands = new Set(projectKeys);
-    for (const k of Object.keys(settings.arms || {})) cands.add(k);
-    for (const o of S.values()) {
-      const d = o.cwd ? stripWorktree(o.cwd) : null;
-      if (d && isProjectRoot(d)) cands.add(d);
-    }
-    return cands;
-  }
-  const dirCache = new Map();        // path -> is an existing directory (arm detection only)
-  function isDir(p) {
-    let v = dirCache.get(p);
-    if (v === undefined) { try { v = fs.statSync(p).isDirectory(); } catch { v = false; } dirCache.set(p, v); }
-    return v;
-  }
-  function subProject(container, abs) {
-    if (!abs.startsWith(container + '/')) return null;
-    const rest = abs.slice(container.length + 1);
-    const i = rest.indexOf('/');
-    if (i <= 0) return null;                       // a file directly in the container
-    const seg = rest.slice(0, i);
-    if (seg.startsWith('.')) return null;          // .claude, .git, ...
-    const sub = container + '/' + seg;
-    return isDir(sub) ? sub : null;                // only real folders on disk
-  }
-  function armOf(s) {
-    const cwd = s.cwd;
-    if (!cwd) return { key: null, name: null };
-    const dir = stripWorktree(cwd);
-    const cands = armCandidates();
-    const memoSig = `${s.filesSig}|${cands.size}|${projectKeys.length}|${dir}`;
-    let key;
-    if (s.armMemo && s.armMemo.sig === memoSig && s.armMemo.settings === settings) key = s.armMemo.key;
-    else {
-      const base = longestPrefix(dir, cands);
-      // A container is a known project folder that exists, is not itself a repo
-      // (no .git / CLAUDE.md). A folder that is gone cannot be judged: no split.
-      const container = cands.has(base) && isDir(base) && !isProjectRoot(base) ? base : null;
-      const pick = (abs) => {
-        const k = longestPrefix(abs, cands);
-        if (container && k === container) return subProject(container, abs) || k;
-        return k;
-      };
-      const own = container ? pick(dir) : base;
-      const w = new Map();
-      let total = 0;
-      const home = process.env.HOME || '';
-      for (const f of s.files.values()) {
-        let abs = f.path;
-        if (abs.startsWith('~/')) abs = home + abs.slice(1);
-        else if (!abs.startsWith('/')) abs = path.join(cwd, abs);
-        if (home && abs.startsWith(home + '/.claude/')) continue;   // plans, memory: not project work
-        abs = abs.replace(/\/\.claude\/worktrees\/[^/]+(?=\/)/, '');
-        const k = pick(abs);
-        if (!k || k === abs) continue;                          // outside every candidate
-        const wt = f.edits * 3 + f.reads;
-        w.set(k, (w.get(k) || 0) + wt);
-        total += wt;
-      }
-      key = own;
-      let best = null, bestW = 0;
-      for (const [k, v] of w) if (v > bestW) { best = k; bestW = v; }
-      if (best && bestW >= ARM_MIN_WEIGHT && bestW > total / 2) key = best;
-      s.armMemo = { sig: memoSig, settings, key };
-    }
-    const name = settings.arms?.[key]?.name || path.basename(key) || key;
-    return { key, name };
-  }
   function titleOf(s) {
     const a = s6.get(s.id);
     if (a && a.title) {
