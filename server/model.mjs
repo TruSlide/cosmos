@@ -38,6 +38,7 @@ const AGENT_TOOLS = new Set(['Agent', 'Task']);
 const EDIT_OPS = { Edit: 'edit', MultiEdit: 'edit', Write: 'write', NotebookEdit: 'notebook', Read: 'read' };
 const SYNTH = '<synthetic>';
 const RECENT_KEEP_S = 600;
+const RESUME_GAP_S = 60;          // my-move whose start moved later by this much is logged again (session reopened)
 const EVENT_INDEX_S = 7 * DAY_S;
 const METRICS_EVERY_S = 60;
 const HOURLY_SPAN_S = 48 * 3600;
@@ -396,7 +397,10 @@ export function createModel(opts = {}) {
   }
   /** Record a mode transition (working / my-move) as an event. Other modes use their own events. */
   function setMode(s, mode, sub, t, badges, tool) {
-    if (s.lastMode === mode) { s.lastSub = sub; return; }
+    // Still my move, but the registry moved last activity on (a session reopened in the app):
+    // log it again so a replay of the events ages the session from the same moment the live model does.
+    const resumed = mode === MODE.MY_MOVE && s.lastMode === mode && t - (s.lastModeT ?? t) >= RESUME_GAP_S;
+    if (s.lastMode === mode && !resumed) { s.lastSub = sub; return; }
     s.lastMode = mode; s.lastSub = sub; s.lastModeT = t;
     s.modeTl.push([t, mode, sub]);
     if (mode === MODE.WORKING) emit(EV.WORKING, s, ms(t), t, { sub: sub ?? SUB.GENERATING, tool: tool ?? null });

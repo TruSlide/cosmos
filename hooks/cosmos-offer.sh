@@ -50,6 +50,8 @@ target="$URL/web/galaxy.html"
 [ -n "$sid" ] && target="$target#session=$sid"
 
 project="$(printf '%s' "$input" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | sed 's#/\.claude/worktrees/.*##; s#.*/##')"
+# The name goes inside an AppleScript string: drop quotes, backslashes and control characters.
+project="$(printf '%s' "$project" | tr -d '"\\' | tr -d '[:cntrl:]' | head -c 80)"
 [ -z "$project" ] && project="a project"
 
 (
