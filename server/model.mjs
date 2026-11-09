@@ -871,7 +871,10 @@ export function createModel(opts = {}) {
         let sub = SUB.APPROVE;
         if (ask && ask.name === 'ExitPlanMode') sub = SUB.PLAN;
         else if (wf === 'input needed' || (ask && wf == null)) sub = SUB.QUESTION;
-        needsMe(sub, reg.statusUpdatedAt ?? now, 'registry', ask?.name ?? other?.name ?? null, [BADGE.UNVERIFIED]);
+        // Registry 'waiting' needs-me is PROVEN on this machine (DATA_SPEC §9.1): registry-sourced
+        // needs-me events logged with a full start→answered→end lifecycle, plus the live latency proof.
+        // No longer flagged unverified, so the top "needs me" alert reads clean.
+        needsMe(sub, reg.statusUpdatedAt ?? now, 'registry', ask?.name ?? other?.name ?? null, []);
       } else if (ask && status !== 'idle') {
         needsMe(ask.name === 'ExitPlanMode' ? SUB.PLAN : SUB.QUESTION, ask.t, 'transcript', ask.name, []);
       } else if (status === 'waiting') {

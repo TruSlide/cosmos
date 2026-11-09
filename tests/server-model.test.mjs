@@ -97,7 +97,8 @@ test('needs-me from a synthetic S5 file: enter and leave synchronously, < 1 s en
     assert.equal(r.live, true);
     assert.equal(r.state.mode, MODE.NEEDS_ME);
     assert.equal(r.state.sub, SUB.APPROVE);
-    assert.ok(r.state.badges.includes(BADGE.UNVERIFIED));
+    // Registry needs-me is proven (DATA_SPEC §9.1): the live path carries NO unverified badge.
+    assert.ok(!r.state.badges.includes(BADGE.UNVERIFIED), 'registry needs-me must not be flagged unverified');
     assert.ok(events.some((ev) => ev.type === EV.NEEDS_ME_START && ev.data.source === 'registry' && ev.data.tool === 'Bash'));
     // The owner approves: registry flips to busy.
     const t0 = performance.now();
