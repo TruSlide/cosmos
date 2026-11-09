@@ -19,6 +19,16 @@ import { Planets } from './objects/planets.js';
 import { Ships } from './objects/ships.js';
 import { AsteroidBelt } from './objects/belt.js';
 import { IdleHaze } from './objects/haze.js';
+import { Nova, NOVA_START } from './objects/nova.js';
+import { damp } from './lib/math.js';
+
+// Death cycle (state.fate 'dying', deathPhase 0..1, owner 2026-11-08): planets
+// age then break apart (planets.js); the star swells, then collapses in a nova
+// (SWELL_* / NOVA_START), leaving a small cinder; the belt scatters outward.
+const SWELL_START = 0.45;
+const SWELL_PEAK = NOVA_START;
+const SWELL_MAX = 1.75;
+const CINDER = 0.32;
 
 export class StarSystem {
   /**
@@ -55,6 +65,8 @@ export class StarSystem {
     this.whiteHole = new WhiteHole(this.root, ctx, { seed });
     // Galaxy-distance sign of idle age (planets show it up close).
     this.haze = new IdleHaze(this.root, ctx, { radius: () => this.belt.midRadius * 1.3 });
+    this.nova = new Nova(this.root, ctx, { seedNum: [...String(seed)].reduce((a, c) => a + c.charCodeAt(0), 0) });
+    this._fate = { star: 1, belt: 1 };
 
     // A compaction's black hole pulls a sector of the belt in.
     this.blackHole.onSwallow = (info) => this.belt.swallow(info);
@@ -85,17 +97,39 @@ export class StarSystem {
     hint = Math.max(hint, this.ships.update(s, dt, t) || 0);
     hint = Math.max(hint, this.flares.update(s, dt, t) || 0);
     this.star.setStormLevel(this.flares.stormLevel);
+    this._applyFate(s, dt);
     hint = Math.max(hint, this.star.update(s, dt, t) || 0);
     hint = Math.max(hint, this.nebula.update(s, dt, t) || 0);
     this.haze.update(s, dt, t);
+    hint = Math.max(hint, this.nova.update(s) || 0);
     return hint;
+  }
+
+  /** Star swell / collapse and belt scatter for the death cycle (damped, so a daily restart re-forms smoothly). */
+  _applyFate(s, dt) {
+    let star = 1, belt = 1;
+    if (s.fate === 'dying') {
+      const p = s.deathPhase;
+      if (p >= SWELL_PEAK) star = CINDER;
+      else if (p > SWELL_START) {
+        const k = (p - SWELL_START) / (SWELL_PEAK - SWELL_START);
+        star = 1 + (SWELL_MAX - 1) * k * k * (3 - 2 * k);
+      }
+      belt = 1 + 0.6 * Math.min(1, Math.max(0, (p - 0.55) / 0.35));
+    }
+    // Collapse is fast (it is a collapse); everything else eases.
+    const f = this._fate;
+    f.star = star < f.star - 0.3 ? damp(f.star, star, 0.15, dt) : damp(f.star, star, 1.2, dt);
+    f.belt = damp(f.belt, belt, 1.5, dt);
+    this.star.fateScale = f.star;
+    this.belt.root.scale.setScalar(f.belt);
   }
 
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
     this.blackHole.onSwallow = null;
-    for (const o of [this.haze, this.whiteHole, this.blackHole, this.ships, this.flares,
+    for (const o of [this.nova, this.haze, this.whiteHole, this.blackHole, this.ships, this.flares,
       this.nebula, this.star, this.planets, this.belt]) o.dispose();
     if (this.root.parent) this.root.parent.remove(this.root);
   }

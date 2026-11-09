@@ -25,6 +25,9 @@ import { Impostors, IMP_MODE } from './impostors.js';
 import { Beacons } from './beacons.js';
 import { Links, LINK_KIND } from './links.js';
 import { Lod, PROMOTE_PX } from './lod.js';
+import { GalacticCenter } from './center.js';
+import { DeepSky } from './deepsky.js';
+import { Constellations } from './constellations.js';
 
 const SYSTEM_RADIUS = 20;            // Gate 1 bounding radius
 const NEEDS_NEAR = 900;              // needs-me systems closer than this get promoted
@@ -58,6 +61,12 @@ export function createGalaxy(engine, store, opts = {}) {
   const layout = createLayout({ getRecord: (sid) => store.get(sid) });
   const disk = new GalacticDisk(root, ctx, { atm, layout });
   const core = new Core(root, ctx, { atm });
+  // Center: the gold Codex (saved knowledge) and the "me" star; deep sky behind everything.
+  const center = new GalacticCenter(root, ctx);
+  const sky = new DeepSky(root, ctx);
+  const constellations = new Constellations(root);
+  const waiting = [];
+  const liveness = [];
   const impostors = new Impostors(root, ctx, { atm });
   const links = new Links(root);
   const lod = new Lod(root, ctx, {
@@ -76,6 +85,13 @@ export function createGalaxy(engine, store, opts = {}) {
     edgeRoot,
     onSelect: (sid) => store.select({ kind: 'session', sid }, { fly: true }),
   });
+  // Crashed (louder than needs-me): orange distress beacons with their own edge markers.
+  const crashBeacons = new Beacons(root, ctx, {
+    edgeRoot, kind: 'crash',
+    onSelect: (sid) => store.select({ kind: 'session', sid }, { fly: true }),
+  });
+  const crashList = [];
+  let crashN = 0;
 
   // ------------------------------------------------------------- per-session nodes
 
@@ -235,6 +251,7 @@ export function createGalaxy(engine, store, opts = {}) {
   function modeCode(rec) {
     const m = rec.state?.mode;
     const rem = rec.state?.remnant;
+    if (store.fateOf?.(rec, store.now()).fate === 'flourish') return IMP_MODE.FLOURISH;
     if (HUSK.has(rem)) return IMP_MODE.HUSK;
     switch (m) {
       case 'needs-me': return IMP_MODE.NEEDS;
@@ -269,6 +286,14 @@ export function createGalaxy(engine, store, opts = {}) {
   // ------------------------------------------------------------- frame
 
   let mapMode = false;
+  let spendLens = !!store.settings?.render?.spend;
+  // Spend ramp: slate (nothing) -> sky blue -> white -> rose -> crimson (never indigo or orange).
+  const SPEND_STOPS = [new THREE.Color(0x5b6378), new THREE.Color(0x3fb6ff), new THREE.Color(0xf4f6ff), new THREE.Color(0xffb8c0), new THREE.Color(0xe3263f)];
+  function spendColor(k, out) {
+    const x = k * (SPEND_STOPS.length - 1);
+    const i = Math.min(SPEND_STOPS.length - 2, Math.floor(x));
+    return out.copy(SPEND_STOPS[i]).lerp(SPEND_STOPS[i + 1], x - i);
+  }
   let frameNo = 0;
   let lastT = 0;
   let pending = null;                 // { sel, until, seconds }
@@ -339,7 +364,9 @@ export function createGalaxy(engine, store, opts = {}) {
     // --- impostors, beacons
     impostors.begin();
     beacons.begin();
+    crashBeacons.begin();
     quasarN = 0;
+    crashN = 0;
     const pulse = beacons.pulse(t);
     let storming = false;
     for (let i = 0; i < nodeList.length; i++) {
@@ -355,7 +382,15 @@ export function createGalaxy(engine, store, opts = {}) {
         const idle = idleOf(rec);
         const bright = n.mode === IMP_MODE.IDLE ? Math.max(0.06, 1 - idle)
           : n.mode === IMP_MODE.MY_MOVE ? 0.85 * Math.max(0.25, 1 - idle) : 1;
-        impostors.push(n.pos, n.col, impostorSize(rec), bright, idle, n.mode, n.storm, 1 - fullFade, n.seed, rec.activity ?? 0);
+        // Dying systems carry their death phase in the activity slot (they have no activity).
+        const fate = (n.mode === IMP_MODE.IDLE || n.mode === IMP_MODE.DEAD) ? store.fateOf?.(rec, now) : null;
+        const act = fate?.fate === 'dying' ? fate.phase : rec.activity ?? 0;
+        if (spendLens) {
+          // Spend lens: color and size by tokens spent today (log scale), state glyphs unchanged.
+          const k = clamp(Math.log10(1 + (rec.tokens?.today || 0) / 2e4) / 2.5, 0, 1);
+          spendColor(k, n.col);
+          impostors.push(n.pos, n.col, impostorSize(rec) * (0.55 + 1.3 * k), k > 0.01 ? 0.5 + 0.7 * k : 0.12, 0, k > 0.01 ? IMP_MODE.WORKING : IMP_MODE.DEAD, n.storm, 1 - fullFade, n.seed, 0);
+        } else impostors.push(n.pos, n.col, impostorSize(rec), bright, idle, n.mode, n.storm, 1 - fullFade, n.seed, act);
       }
       if (n.mode === IMP_MODE.NEEDS) {
         // Hand over to the real quasar once the full system is big on screen.
@@ -385,10 +420,24 @@ export function createGalaxy(engine, store, opts = {}) {
         n.beaconAlpha = 0;
         beaconShownAt.delete(n.sid);
       }
+      if (n.mode === IMP_MODE.CRASHED && store.crashAlarm?.(rec, now)) {
+        if (!n.behind) crashBeacons.push(n.pos, 46 - 6 * smoothstep(250, 3200, n.camDist), 1);
+        let q = crashList[crashN];
+        if (!q) { q = { sid: '', x: 0, y: 0, onScreen: false, behind: false, wait: '', waitS: NaN, title: '' }; crashList[crashN] = q; }
+        crashN++;
+        q.sid = n.sid; q.x = n.x; q.y = n.y; q.onScreen = n.onScreen; q.behind = n.behind;
+        const agoS = Math.floor(now - (rec.state?.since ?? now));
+        if (q.waitS !== agoS) { q.waitS = agoS; q.wait = fmtWait(agoS); }
+        q.title = rec.title ?? '';
+      }
     }
     impostors.end(t);
     beacons.end(t);
-    beacons.placeMarkers(quasarList, quasarN, cssW, cssH, occluders ? occluders.rects() : null);
+    crashBeacons.end(t);
+    const occRects = occluders ? occluders.rects() : null;
+    crashBeacons.placeMarkers(crashList, crashN, cssW, cssH, occRects);
+    beacons.placeMarkers(quasarList, quasarN, cssW, cssH, occRects);
+    if (crashN > 0) hint = Math.max(hint, 1);
     if (quasarN > 0) hint = Math.max(hint, 1);
     if (storming) hint = Math.max(hint, 1);
 
@@ -406,6 +455,26 @@ export function createGalaxy(engine, store, opts = {}) {
     }
     const qDim = quasarN > 0 ? 1 : 0;
     hint = Math.max(hint, core.update(activitySum, now, dt, qDim));
+    // Center pair and deep sky: threads to every session that needs me; sky grows with lifetime tokens.
+    waiting.length = 0;
+    liveness.length = 0;
+    let lifetime = 0, dormant = 0;
+    for (let i = 0; i < nodeList.length; i++) {
+      const n = nodeList[i];
+      lifetime += n.rec.tokens?.total || 0;
+      if (n.visible && n.mode === IMP_MODE.NEEDS) waiting.push(n.pos);
+      // Tree: living sessions are branches above, everything else feeds the roots.
+      if (!n.visible) continue;
+      if (n.mode === IMP_MODE.WORKING || n.mode === IMP_MODE.NEEDS || n.mode === IMP_MODE.MY_MOVE) {
+        liveness.push(n.mode === IMP_MODE.WORKING ? 0.6 + 0.4 * (n.rec.activity ?? 0) : n.mode === IMP_MODE.NEEDS ? 0.8 : 0.3);
+      } else dormant++;
+    }
+    center.setSessions(liveness.length, dormant, liveness);
+    hint = Math.max(hint, center.update(dt, t, { pxK, nowS: now, waiting, alive: liveness.length }));
+    constellations.enabled = store.settings?.render?.constellations !== false;
+    hint = Math.max(hint, constellations.update(t, () => store.sessions.values(), now, (sid) => { const n = nodes.get(sid); return n && n.visible ? n.pos : null; }));
+    sky.enabled = store.settings?.render?.deepSky !== false;
+    hint = Math.max(hint, sky.update(dt, t, { camera, tokens: lifetime, tokensToday: store.totals?.tokensToday?.total || 0 }));
     hint = Math.max(hint, disk.update(dt, qDim) || 0);
     syncArmLive();
 
@@ -521,6 +590,8 @@ export function createGalaxy(engine, store, opts = {}) {
     updateView();
     _v2.set(0, 0, 0);
     place(anchor('core', 'core'), _v2, core.radius);
+    place(anchor('codex', 'codex'), center.codexPos, center.radius);
+    place(anchor('me', 'me'), center.mePos, 6);
     for (const arm of arms.values()) {
       const a = anchor(arm.labelKey, 'arm');
       a.armKey = arm.key;
@@ -652,7 +723,14 @@ export function createGalaxy(engine, store, opts = {}) {
     }
     if (bestN) return { kind: 'session', sid: bestN.sid, armKey: bestN.armKey, point: bestN.pos.clone() };
 
-    // 3. Arms: nearest curve sample within 14 px.
+    // 3. The center pair: the Codex crystal and the "me" star.
+    for (const [kind, pos, minPx] of [['me', center.mePos, 12], ['codex', center.codexPos, 22]]) {
+      project(pos, _proj);
+      if (_proj.behind) continue;
+      if (Math.hypot(_proj.x - x, _proj.y - y) < Math.max(minPx, center.radius * pxK / _proj.depth)) return { kind, point: pos.clone() };
+    }
+
+    // 3b. Arms: nearest curve sample within 14 px.
     let bestArm = null, bestArmD = 14;
     for (const arm of arms.values()) {
       for (let i = 0; i < arm.curve.length; i++) {
@@ -811,6 +889,13 @@ export function createGalaxy(engine, store, opts = {}) {
     const seconds = o.seconds ?? 1.6;
     if (!sel || sel.kind === 'galaxy') { pending = null; reset(seconds); return; }
     if (dirty) rebuild();
+    if (sel.kind === 'codex' || sel.kind === 'me') {
+      pending = null;
+      const target = center.codexPos.clone().lerp(center.mePos, 0.5);
+      controls.flyTo(framePosition(target, 95, (28 * Math.PI) / 180, new THREE.Vector3()), target, seconds);
+      engine.wake(seconds + 0.5);
+      return;
+    }
     if (sel.kind === 'arm') {
       const a = arms.get(sel.armKey);
       if (!a) return;
@@ -844,6 +929,7 @@ export function createGalaxy(engine, store, opts = {}) {
     switch (sel.kind) {
       case 'galaxy': return null;
       case 'arm': return { kind: 'galaxy' };
+      case 'codex': case 'me': return { kind: 'galaxy' };
       case 'session': {
         const rec = store.get(sel.sid);
         return rec?.arm?.key ? { kind: 'arm', armKey: rec.arm.key } : { kind: 'galaxy' };
@@ -935,10 +1021,10 @@ export function createGalaxy(engine, store, opts = {}) {
   });
   on('sessions', () => { dirty = true; engine.wake(0.5); });
   on('ready', () => { dirty = true; });
-  on('settings', () => { dirty = true; });
+  on('settings', () => { dirty = true; spendLens = !!store.settings?.render?.spend; });
   on('time', () => { engine.wake(0.5); });
   on('needs-me', (e) => { if (e?.entered) engine.wake(1.5); });
-  on('selection', (sel, o) => { if (o?.fly) focus(sel); engine.wake(0.5); });
+  on('selection', (sel, o) => { if (o?.fly) focus(sel, o?.seconds ? { seconds: o.seconds } : {}); engine.wake(0.5); });
 
   const offQuality = engine.onQuality?.(() => {
     // Objects don't hot-switch quality (CONTRACT §1): drop full systems; LOD rebuilds them.
@@ -964,11 +1050,26 @@ export function createGalaxy(engine, store, opts = {}) {
     view,
     minimap,
     setMapMode(on) { mapMode = !!on; engine.wake(0.5); },
+    setSpendLens(on) { spendLens = !!on; engine.wake(0.5); },
+    get spendLens() { return spendLens; },
     get mapMode() { return mapMode; },
     onAfterFrame(fn) { afterFrame.add(fn); return () => afterFrame.delete(fn); },
     stats,
     /** performance.now() of the first frame a session's quasar beacon was drawn (QA latency proof). */
     beaconShownAt: (sid) => beaconShownAt.get(sid) ?? null,
+    /** Knowledge list for the Codex (GET /api/knowledge items); `quiet` skips the grow-in. */
+    setKnowledge(items, opts) { center.setKnowledge(items, opts); engine.wake(1); },
+    /** A gold beam from a session's system to the Codex (it just saved knowledge). */
+    beamFrom(sid) {
+      const n = nodes.get(sid);
+      if (!n) return false;
+      center.beam(n.pos);
+      engine.wake(3);
+      return true;
+    },
+    center,
+    sky,
+    constellations,
     /** Full StarSystem for a session, or null (read-only use: LENS/QA). */
     system: (sid) => lod.get(sid),
     dispose() {
@@ -982,7 +1083,7 @@ export function createGalaxy(engine, store, opts = {}) {
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerleave', onLeave);
       renderer.info.autoReset = true;
-      lod.dispose(); beacons.dispose(); links.dispose(); impostors.dispose(); core.dispose(); disk.dispose();
+      lod.dispose(); beacons.dispose(); crashBeacons.dispose(); links.dispose(); impostors.dispose(); core.dispose(); disk.dispose(); center.dispose(); sky.dispose(); constellations.dispose();
       engine.scene.remove(root);
     },
   };

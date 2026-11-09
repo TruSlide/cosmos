@@ -31,6 +31,9 @@ const ART = Object.freeze({
   flare: BIG('<circle cx="20" cy="26" r="7" fill="currentColor" opacity=".35"/><path d="M14 24c0-10 12-10 12 0" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M11 30c4-3 14-3 18 0" stroke="currentColor" stroke-width="1" fill="none" opacity=".6"/>'),
   storm: BIG('<circle cx="20" cy="22" r="6" fill="currentColor" opacity=".3"/><path d="M10 22c0-8 8-8 8 0M18 18c0-9 9-9 9 0M23 24c0-7 8-7 8 0" fill="none" stroke="currentColor" stroke-width="2"/>'),
   blackhole: BIG('<ellipse cx="20" cy="20" rx="17" ry="6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="20" cy="20" r="7.5" style="fill:var(--void)" stroke="currentColor" stroke-width="2"/><path d="M36 9c-4 2-8 6-10 9" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 2" fill="none"/>'),
+  codex: BIG('<path d="M20 4l4 12-4 20-4-20z M8 12l9 5-2.5 11z M32 12l-9 5 2.5 11z M12 30l6-4v8z M28 30l-6-4v8z" fill="#ffc83d" opacity=".9"/>'),
+  me: BIG('<path d="M20 5l2.6 12.4L35 20l-12.4 2.6L20 35l-2.6-12.4L5 20l12.4-2.6z" fill="currentColor"/>'),
+  wonder: BIG('<circle cx="20" cy="20" r="11" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".8"/><circle cx="20" cy="20" r="2" fill="currentColor"/><path d="M6 33c6-3 10-3 14 0s9 3 14 0" fill="none" stroke="currentColor" stroke-width="1" opacity=".6"/>'),
   core: BIG('<circle cx="20" cy="20" r="6" fill="currentColor" opacity=".7"/><circle cx="20" cy="20" r="14" fill="none" stroke="currentColor" stroke-width=".8"/>' + Array.from({ length: 24 }, (_, i) => { const a = (i / 24) * Math.PI * 2; return `<path d="M${(20 + Math.cos(a) * 14).toFixed(1)} ${(20 + Math.sin(a) * 14).toFixed(1)}L${(20 + Math.cos(a) * (i === 3 ? 18.5 : 16)).toFixed(1)} ${(20 + Math.sin(a) * (i === 3 ? 18.5 : 16)).toFixed(1)}" stroke="currentColor" stroke-width="${i === 3 ? 1.6 : 0.7}"/>`; }).join('')),
   arm: BIG('<path d="M20 20c0-3 3-4.4 5.6-2.4 3.2 2.8 1.6 8.6-3.2 9.8C16 28.6 10.6 23 11.8 16.4 13.2 9.6 21.2 6.8 27.4 9.8c5.8 2.8 8.6 9.6 7.2 15.8" fill="none" stroke="currentColor" stroke-width="2.2" opacity=".85"/>'),
   cluster: BIG('<circle cx="20" cy="20" r="11" fill="none" stroke="currentColor" stroke-width=".7" opacity=".5"/><circle cx="20" cy="9" r="3" fill="currentColor"/><circle cx="30" cy="24" r="2.6" fill="currentColor"/><circle cx="11" cy="25" r="2.8" fill="currentColor"/>'),
@@ -43,7 +46,7 @@ const ART = Object.freeze({
 function sections(storm) {
   return [
     { title: 'What needs you', cards: [
-      { art: 'quasar', tone: 'needs', name: 'Neon orange hourglass quasar', means: 'Needs you NOW: a permission to approve, a question for you, or a plan waiting for your OK. Twin jets in an hourglass shape and a slow 2.4 s pulse, so it reads even without color. Brightest thing in the sky; nothing else is ever this orange.',
+      { art: 'quasar', tone: 'needs', name: 'Indigo hourglass quasar', means: 'Needs you NOW: a permission to approve, a question for you, or a plan waiting for your OK. Twin jets in an hourglass shape and a slow 2.4 s pulse, so it reads even without color. Nothing else is ever this indigo; only a fresh crash outshines it.',
         data: 'Session registry says "waiting", or a pending AskUserQuestion / ExitPlanMode. Wait clock = time since it started waiting.', count: (T) => T.byMode?.['needs-me'] },
       { art: 'edge', tone: 'needs', name: 'Edge marker', means: 'A quasar that is off screen or behind you. The chevron points the way; the number is how long it has waited. Click it (or press N / B) to fly there.',
         data: 'Same signal as the quasar.' },
@@ -52,7 +55,7 @@ function sections(storm) {
     ] },
     { title: 'A star system = one session', cards: [
       { art: 'star', tone: 'working', name: 'Star', means: 'The lead agent: one Claude Code session.', data: 'One main transcript file under ~/.claude/projects.', count: (T) => T.sessions },
-      { art: 'ramp', tone: 'plain', name: 'Star color', means: 'How full its context window is: blue-white when nearly empty, white at half, rose, then crimson when full. Never orange.',
+      { art: 'ramp', tone: 'plain', name: 'Star color', means: 'How full its context window is: blue-white when nearly empty, white at half, rose, then crimson when full. Never indigo or electric orange.',
         data: 'Last turn\'s input + cache tokens ÷ the model\'s context limit (limits table in Settings).' },
       { art: 'whitehole', tone: 'working', name: 'White hole', means: 'A new session bursting into the galaxy, then settling into its place on its project\'s arm.',
         data: 'A new session process, or a transcript whose first entry is under 2 minutes old.' },
@@ -74,7 +77,7 @@ function sections(storm) {
         data: 'Same errors, counted in a sliding window (threshold in Settings).', count: (T) => T.stormsToday, countWord: 'today' },
       { art: 'blackhole', tone: 'compaction', name: 'Black hole', means: 'A compaction: the context got squeezed. It swallows part of the belt as a visible stream and leaves a cleaner orbit.',
         data: 'A compact boundary in the transcript; size = tokens before − after.', count: (T) => T.compactionsToday, countWord: 'today' },
-      { art: 'crashed', tone: 'idle', name: 'Shattered shell', means: 'Crashed or ended abnormally: a dim core inside a frozen shell of shards.',
+      { art: 'crashed', tone: 'idle', name: 'Crash: orange distress beacon, then a shattered shell', means: 'Crashed or ended abnormally. For a day (or until you dismiss it in Needs me) it flashes an electric-orange distress beacon, louder than needs-me; after that it is a dim core in a frozen shell of shards.',
         data: 'An unanswered API request, a tool that never finished, or a process that died mid-turn.', count: (T) => T.byMode?.crashed },
     ] },
     { title: 'Rest and history', cards: [
@@ -88,6 +91,16 @@ function sections(storm) {
     { title: 'Layout', cards: [
       { art: 'core', tone: 'plain', name: 'Galactic core', means: 'The fixed landmark at the center. Its glow is how hard everything is working; its ring has 24 hour ticks, the bright one is the current hour.',
         data: 'Summed activity of running sessions; the data clock\'s local hour.' },
+      { art: 'codex', tone: 'plain', name: 'The Tree of Knowledge', means: 'As above, so below: branches above are your living sessions, roots below the dormant and finished ones. Its leaves are your saved knowledge; a gold beam flies in and a new leaf grows when a session saves something.',
+        data: 'Live and other session counts; read-only list of memories, skills, kit, CLAUDE.md and DECISIONS.md / playbooks. Names only.' },
+      { art: 'me', tone: 'plain', name: 'You (pearl star)', means: 'You, orbiting the tree. A thread of light runs to every session that needs you; small moons around you are your Parking Lot (pearl: waiting on you, teal: ready when you are, grey: parked).',
+        data: 'Sessions in the needs-me state.' },
+      { art: 'arm', tone: 'plain', name: 'Shared-file lines', means: 'Faint lines join sessions that edited the same files (normal when one job is split up). A pulsing amber line means two live sessions edited the same file within 30 minutes: one may overwrite the other.',
+        data: 'Edited files of sessions active in the last week. Settings > Render turns the lines off.' },
+      { art: 'ramp', tone: 'plain', name: 'Spend lens ($)', means: 'Press $ to color every system by tokens spent today: small and slate for none, blue, white, rose, then large crimson for the heaviest spenders.',
+        data: 'Tokens today (input + output + cache writes).' },
+      { art: 'wonder', tone: 'plain', name: 'Deep sky', means: 'The far universe behind everything: distant galaxies, star clusters and thin nebulae, on several depth layers that drift slightly as you fly. More of it fills in as your lifetime tokens grow.',
+        data: 'Lifetime tokens (input + output + cache writes). Decorative; Settings > Render turns it off.' },
       { art: 'arm', tone: 'plain', name: 'Spiral arm', means: 'One project. Its sessions are born on it and stay there; brighter with more open sessions.',
         data: 'The project folder where the session did most of its file work (else its first working directory). Settings → Projects can map a subfolder to its own arm.' },
       { art: 'cluster', tone: 'plain', name: 'Satellite cluster', means: 'Sessions in the same git worktree, grouped just off their arm.',

@@ -106,6 +106,10 @@ export function createKeys(target, { store, galaxy, labels = null, diagnostics =
         if (galaxy?.setMapMode) { galaxy.setMapMode(!galaxy.mapMode); say(galaxy.mapMode ? 'Map mode on: links between sessions, subagents, forks and arms' : 'Map mode off'); }
         else handled = false;
         break;
+      case '$':
+        if (galaxy?.setSpendLens) { galaxy.setSpendLens(!galaxy.spendLens); say(galaxy.spendLens ? 'Spend lens on: color = tokens spent today ($)' : 'Spend lens off'); }
+        else handled = false;
+        break;
       case 'h': actions.toggleScrubber?.(); break;
       case ' ':
         if (actions.scrubberOpen?.()) actions.playPause?.(); else handled = false;

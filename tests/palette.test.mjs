@@ -1,4 +1,6 @@
-// Reserved-hue QA: only NEEDS_ME / NEEDS_ME_CORE may land in the NEEDS ME
+// Reserved-hue QA: only NEEDS_ME / NEEDS_ME_CORE (indigo) and CRASHED / CRASHED_CORE
+// (orange) may land in a reserved band (the comment below predates the split):
+// only NEEDS_ME / NEEDS_ME_CORE may land in the NEEDS ME
 // orange band, before or after tone mapping.
 //
 //   node --test tests/*.test.mjs
@@ -33,11 +35,12 @@ const luma = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 const atLuma = (c, L) => c.clone().multiplyScalar(L / Math.max(1e-6, luma(c)));
 const describe = (c) => linearToOklch(c.r, c.g, c.b).map((v) => v.toFixed(3)).join(' / ');
 
-const RESERVED = new Set(['NEEDS_ME', 'NEEDS_ME_CORE']);
+const RESERVED = new Set(['NEEDS_ME', 'NEEDS_ME_CORE', 'CRASHED', 'CRASHED_CORE']);
 const LUMAS = [0.5, 1, 2];
 
 test('NEEDS_ME itself is in the reserved band', () => {
   assert.equal(isReservedHue(PALETTE.NEEDS_ME), true);
+  assert.equal(isReservedHue(PALETTE.CRASHED), true);
 });
 
 test('no other palette entry is in the reserved band, raw or after ACES', () => {

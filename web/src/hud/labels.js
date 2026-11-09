@@ -181,6 +181,13 @@ export function createLabels(rootEl, { galaxy, store, occluders = null }) {
         e.prio = P.CORE;
         return true;
       }
+      case 'codex': return false;   // the tree has no label (owner, 2026-11-08)
+      case 'me': {
+        if (level === 'close') return false;
+        if (diff(e, 2)) { e.g = '\u2726'; e.t = 'You'; e.s = ''; e.cls = 'lbl--core'; e.w = 0; }
+        e.prio = P.CORE;
+        return true;
+      }
       case 'cluster': {
         rec = store.get(a.sid);
         // Worktree names are noise in the overview: arm level or closer only.
@@ -195,6 +202,9 @@ export function createLabels(rootEl, { galaxy, store, occluders = null }) {
         const st = rec.state || {};
         const m = st.mode;
         const isSel = e.key === selKey, isHov = e.key === hovKey;
+        // Owner, 2026-11-08: session labels only for the hovered or selected system
+        // (Settings > Labels > "Session labels" = always brings the old behaviour back).
+        if (store.settings?.labels?.sessions !== 'always' && !isSel && !isHov) return false;
         let prio;
         if (m === MODE.NEEDS_ME) prio = P.NEEDS;
         else if (m === MODE.MY_MOVE) prio = P.MYMOVE;

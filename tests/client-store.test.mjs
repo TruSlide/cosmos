@@ -62,7 +62,7 @@ function setup({ sessions, history } = {}) {
   return { store, calls, setWall: (w) => { wall = w; } };
 }
 
-test('adapter output passes normalizeState for every mode; dead and husks map to idle 1', async () => {
+test('adapter output passes normalizeState for every mode; dead and husks run the daily death cycle', async () => {
   const { store } = setup();
   await store.ready;
   const out = {};
@@ -73,9 +73,20 @@ test('adapter output passes normalizeState for every mode; dead and husks map to
       assert.equal(n.id, id);
     }
   }
-  assert.equal(store.systemState(sid(5), null, {}).mode, 'idle');
-  assert.equal(store.systemState(sid(5), null, {}).idleFor, 1);
-  assert.equal(store.systemState(sid(7), null, {}).idleFor, 1);
+  // Owner 2026-11-08: dead systems re-run their death cycle every day (visual only):
+  // fate 'dying', deathPhase 0..1, aging (idleFor) completes at phase 0.55.
+  for (const k of [5, 7]) {
+    const d = store.systemState(sid(k), null, {});
+    assert.equal(d.mode, 'idle');
+    assert.equal(d.fate, 'dying');
+    assert.ok(d.deathPhase >= 0 && d.deathPhase < 1);
+    assert.ok(Math.abs(d.idleFor - Math.min(1, d.deathPhase / 0.55)) < 1e-9);
+  }
+  // Archived or cleanly closed sessions flourish; open idle ones are mid-death.
+  assert.equal(store.fateOf({ state: { mode: 'dead', remnant: 'archived' }, times: {} }, NOW).fate, 'flourish');
+  assert.equal(store.fateOf({ state: { mode: 'idle', remnant: 'ended' }, times: {} }, NOW).fate, 'flourish');
+  assert.equal(store.fateOf({ state: { mode: 'working' }, times: {} }, NOW).fate, null);
+  assert.equal(store.systemState(sid(4), null, {}).fate, 'dying');
   assert.equal(store.systemState(sid(1), null, {}).needsKind, 'question');
   assert.equal(store.systemState(sid(2), null, {}).idleFor, 0);
   const w = store.systemState(sid(2), { fileGrain: 'folder' }, {});

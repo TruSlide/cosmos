@@ -12,6 +12,7 @@ import { FEED_TYPES, DIAG_TYPES, EV } from '../web/src/shared/schema.mjs';
 import { SETTINGS_DEFAULTS, validateSettings, validateLimits } from '../web/src/shared/settings.mjs';
 import { liteRecord } from './store.mjs';
 import { httpError } from './security.mjs';
+import { needs as needsOf } from './pending.mjs';
 
 const BODY_MAX = 64 * 1024;
 const FEED_MAX = 300;          // routine events (tool-call, file-touch)
@@ -98,7 +99,7 @@ function localDayStr(tS) {
 
 export function createApi({
   model, store, security, settingsPath, limitsPath, root, port,
-  diag = null, claudeSettings = null,
+  diag = null, claudeSettings = null, knowledge = null, pending = null,
   settings = null, limits = null,
   clock = () => Date.now() / 1000,
 }) {
@@ -391,7 +392,6 @@ export function createApi({
     try { model?.setSettings?.(current); } catch (err) { console.error('cosmos: model.setSettings failed:', err.message); }
     if (body.limits !== undefined) { try { model?.setLimits?.(currentLimits); } catch (err) { console.error('cosmos: model.setLimits failed:', err.message); } }
     store.setSettings(current);
-    store.writeLaunchConfig(current.launch).catch((err) => console.error('cosmos: launch-config:', err.code || err.message));
     broadcast('settings', { settings: current, limits: currentLimits });
     return { status: 200, body: { settings: current, limits: currentLimits, errors: [] } };
   }
@@ -448,6 +448,17 @@ export function createApi({
       }
       if (p === '/api/events') { if (m === 'HEAD') { fail(res, 405, 'method', 'Use GET.'); return; } openStream(req, res); return; }
       if (p === '/api/snapshot') { if (!needModel(res)) return; json(res, 200, snapshot()); return; }
+      if (p === '/api/pending') {
+        if (!pending) { fail(res, 503, 'unavailable', 'Parking Lot is not available.'); return; }
+        json(res, 200, await pending.list({ fresh: url.searchParams.has('fresh') }));
+        return;
+      }
+      if (p === '/api/needs') { json(res, 200, needsOf(model)); return; }
+      if (p === '/api/knowledge') {
+        if (!knowledge) { fail(res, 503, 'unavailable', 'Knowledge index is not available.'); return; }
+        json(res, 200, knowledge.list({ fresh: url.searchParams.has('fresh') }));
+        return;
+      }
       if (p === '/api/settings') { json(res, 200, { settings: current, limits: currentLimits, defaults: SETTINGS_DEFAULTS }); return; }
       if (p === '/api/history') {
         const from = Number(url.searchParams.get('from'));
@@ -482,7 +493,7 @@ export function createApi({
       if (p === '/api/claude-settings') {
         if (!claudeSettings) throw httpError(503, 'unavailable', 'Claude Code settings are not available.');
         const r = claudeSettings.read();
-        json(res, 200, { cleanupPeriodDays: r.cleanupPeriodDays, launchHook: r.launchHook, path: r.path });
+        json(res, 200, { cleanupPeriodDays: r.cleanupPeriodDays, path: r.path });
         return;
       }
       if (p === '/api/claude-settings/preview') {

@@ -1,5 +1,5 @@
 // Cosmos cache: reader offsets, session snapshots, the event log, stable
-// layout, the Explain running total and the launch-hook config
+// layout and the Explain running total
 // (GALAXY_CONTRACT §3.3, §3.4, §3.9; writes W2–W5, W7).
 //
 // Everything lives under cosmos/cache/. Nothing here ever writes under
@@ -112,7 +112,6 @@ export function createStore({
     events: path.join(cacheDir, 'events'),
     layout: path.join(cacheDir, 'layout.json'),
     explain: path.join(cacheDir, 'explain-usage.json'),
-    launch: path.join(cacheDir, 'launch-config'),
   };
   let currentSettings = settings;
   const timers = new Set();
@@ -586,16 +585,10 @@ export function createStore({
     return explainUsage();
   }
 
-  // ---------------------------------------------------------------- settings + launch config (§3.9)
+  // ---------------------------------------------------------------- settings (§3.9)
   function setSettings(s) { currentSettings = s || SETTINGS_DEFAULTS; }
 
-  /** cache/launch-config, read by hooks/cosmos-offer.sh. Plain text, two lines. */
-  function writeLaunchConfig(launch = currentSettings.launch) {
-    const enabled = launch?.enabled === false ? 0 : 1;
-    const eps = (Array.isArray(launch?.entrypoints) ? launch.entrypoints : [])
-      .filter((e) => /^[a-z0-9-]+$/.test(e));
-    return writeAtomic(P.launch, `enabled=${enabled}\nentrypoints=${eps.join(' ')}\n`);
-  }
+
 
   // ---------------------------------------------------------------- flush
   async function flush() {
@@ -618,7 +611,7 @@ export function createStore({
     appendEvent, readEvents, findEvent, history,
     place, commitLayout,
     explainUsage, addExplainUsage,
-    setSettings, writeLaunchConfig,
+    setSettings,
     flushEvents, flush,
     paths: P,
   };

@@ -14,6 +14,9 @@ import { MODE, EV, FEED_TYPES, DIAG_TYPES, NEEDS_KIND, idleFraction, urgencyRank
 import { SETTINGS_DEFAULTS } from '../shared/settings.mjs';
 import { recordFromBorn, applyEvent, advance } from '../shared/fold.mjs';
 
+/** Death cycle: aging (storms, volcanoes, cracks) runs to this phase, then the system breaks apart. */
+const AGING_END = 0.55;
+
 const EVENTS_MAX = 500;          // history feed (rows up to the cursor)
 const ROUTINE_MAX = 500;         // live tool-call / file-touch rows
 const SIGNAL_MAX = 600;          // every other live feed row, capped separately
@@ -244,9 +247,22 @@ export function createClientStore({
     const is = rec?.state?.mode === MODE.NEEDS_ME;
     if (was !== is) emit('needs-me', { sid: rec?.id ?? prev?.id, entered: is, since: rec?.state?.since ?? null });
   }
+  // Rebirth (owner, 2026-11-08): a dying or dead session that comes back to life
+  // re-forms in a white-hole burst. sid -> data-clock time it came back.
+  const rebornAt = new Map();
+  const ALIVE = new Set([MODE.WORKING, MODE.NEEDS_ME, MODE.MY_MOVE]);
+  function rebirthCheck(prev, rec) {
+    if (!prev || !rec || !ALIVE.has(rec.state?.mode)) return;
+    const was = prev.state?.mode;
+    if (was !== MODE.IDLE && was !== MODE.DEAD) return;
+    if (fateOf(prev, now()).fate !== 'dying') return;
+    rebornAt.set(rec.id, now());
+    emit('reborn', { sid: rec.id, title: rec.title ?? null });
+  }
   function putLiveSession(rec) {
     const prev = live.sessions.get(rec.id);
     live.sessions.set(rec.id, rec);
+    if (!inHistory()) rebirthCheck(prev, rec);
     sessionCache.delete(rec.id);
     if (inHistory()) return;
     if (!prev || prev.arm?.key !== rec.arm?.key || prev.place?.slot !== rec.place?.slot) rebuildArms();
@@ -476,6 +492,44 @@ export function createClientStore({
     return a;
   }
 
+  // Crash alarm (owner, 2026-11-08): crashed sessions draw more attention than
+  // needs-me, for a day after the crash or until dismissed (kept on this device).
+  const CRASH_ALARM_S = 86400;
+  const DISMISS_KEY = 'cosmos.crash.dismissed';
+  let dismissed = new Set();
+  try { dismissed = new Set(JSON.parse(globalThis.localStorage?.getItem(DISMISS_KEY) || '[]')); } catch { dismissed = new Set(); }
+  function crashAlarm(rec, n = now()) {
+    const st = rec?.state;
+    if (!st || st.mode !== MODE.CRASHED || dismissed.has(rec.id)) return false;
+    const at = st.since ?? rec.times?.lastActivity ?? 0;
+    return n - at < CRASH_ALARM_S;
+  }
+  function crashAlarms() {
+    const out = [];
+    const n = now();
+    for (const r of curSessions().values()) if (crashAlarm(r, n)) out.push(r);
+    out.sort((a, b) => (b.state.since ?? 0) - (a.state.since ?? 0));
+    return out;
+  }
+  function dismissCrash(sid) {
+    dismissed.add(sid);
+    try { globalThis.localStorage?.setItem(DISMISS_KEY, JSON.stringify([...dismissed].slice(-200))); } catch { /* ignore */ }
+    emit('crash-dismissed', { sid });
+  }
+
+  /** Fate of a record at data-clock time n: { fate: 'dying'|'flourish'|null, phase 0..1 }. */
+  function fateOf(rec, n) {
+    const st = rec.state || {};
+    const rem = st.remnant;
+    if (rem === 'archived' || rem === 'ended') return { fate: 'flourish', phase: 0 };
+    if (st.mode === MODE.IDLE && !rem) return { fate: 'dying', phase: Math.min(1, idleFor(rec)) };
+    if (st.mode === MODE.DEAD || (st.mode === MODE.IDLE && rem)) {
+      const since = Math.max(0, n - ((rec.times?.lastActivity ?? n) + DAY_S));
+      return { fate: 'dying', phase: (since % DAY_S) / DAY_S };
+    }
+    return { fate: null, phase: 0 };
+  }
+
   function systemState(sid, opts, out = {}) {
     const rec = get(sid);
     if (!rec) return null;
@@ -491,6 +545,14 @@ export function createClientStore({
     else if (mode === MODE.CRASHED) idle = 0;
     else { mode = 'idle'; idle = 1; }
     if (rem === 'aged-out' || rem === 'deleted') { mode = 'idle'; idle = 1; }
+    // Fate: archived or cleanly closed sessions flourish; inactive ones die. The
+    // death cycle runs over the idle day, then (once dead) restarts every day so
+    // dead systems keep visibly falling apart. Crashed keeps its own remnant.
+    const fl = fateOf(rec, n);
+    if (fl.fate === 'flourish') { mode = 'idle'; idle = 0; }
+    else if (fl.fate === 'dying') { mode = 'idle'; idle = Math.min(1, fl.phase / AGING_END); }
+    out.fate = fl.fate;
+    out.deathPhase = fl.phase;
 
     out.v = 1;
     out.id = rec.id;
@@ -504,7 +566,9 @@ export function createClientStore({
     out.tokens = rec.tokens || { total: 0 };
     if (typeof out.tokens.total !== 'number') out.tokens = { ...out.tokens, total: 0 };
     const born = rec.times?.bornAt;
-    out.bornAt = typeof born === 'number' && n - born < 4 && n - born >= 0 ? born : null;
+    const rb = rebornAt.get(sid);
+    out.bornAt = typeof born === 'number' && n - born < 4 && n - born >= 0 ? born
+      : typeof rb === 'number' && n - rb < 4 && n - rb >= 0 ? rb : null;
     out.endedAt = rec.times?.endedAt ?? null;
     out.title = rec.title ?? null;
     out.project = rec.arm?.name ?? null;
@@ -832,7 +896,7 @@ export function createClientStore({
     get hovered() { return hovered; },
     get time() { return time; },
     get history() { return inHistory() ? { events: hist.events, truncated: !!hist.truncated } : null; },
-    now, on, get, fetchSession, recent, idleFor, needsMe, byUrgency, systemState,
+    now, on, get, fetchSession, recent, idleFor, needsMe, byUrgency, systemState, fateOf, crashAlarm, crashAlarms, dismissCrash,
     select, hover, enterHistory, setCursor, play, pause, exitHistory, historyEvents,
     diag, errorText, explain, saveSettings, claudeSettings, previewClaudeSetting, applyClaudeSetting,
     dispose,

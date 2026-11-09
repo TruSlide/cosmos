@@ -768,10 +768,19 @@ export function createModel(opts = {}) {
     if (!name) return null;
     return { name, branch: s6.get(s.id)?.branch || s.gitBranch || null };
   }
-  function bornAtOf(s) {
+  function bornAtOf(s, depth = 0) {
     const reg = registryBySid.get(s.id);
     let b = s.firstT ?? s.firstCopyT ?? null;
     if (reg && reg.startedAt != null && (b == null || reg.startedAt < b) && !s.forkOfUuid) b = reg.startedAt;
+    // A fork is never born before its parent. Copied history can carry an entry the
+    // fork claims for itself (forks of forks made within the same second), which
+    // would otherwise date the fork before the session it was forked from.
+    const parentId = depth < 8 ? forkOfOf(s) : null;
+    const parent = parentId ? S.get(parentId) : null;
+    if (parent && b != null) {
+      const pb = bornAtOf(parent, depth + 1);
+      if (pb != null && pb > b) b = pb;
+    }
     return b;
   }
   function emitBorn(s) {
@@ -1164,6 +1173,7 @@ export function createModel(opts = {}) {
       v: 1, id: s.id, title, titleSource, origin: originOf(s), forkOf: forkOfOf(s),
       spawnedFrom: s6.get(s.id)?.spawnedFrom?.cliSessionId ?? null,
       entrypoint: s.entrypoint || registryBySid.get(s.id)?.entrypoint || null,
+      appSession: st.live ? registryBySid.get(s.id)?.appSession ?? null : null,
       arm, worktree: worktreeOf(s), cwd: s.cwd, place: null,
       model: s.model, models: [...s.models], live, cacheOnly: false,
       // Ended only when it really ended: transcript-only liveness (no registry)

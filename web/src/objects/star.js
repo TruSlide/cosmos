@@ -30,7 +30,7 @@
 // keeps the full 14 → 30 pulse, so the order of the ladder (quasar ≫
 // everything) is unchanged.
 //
-// NEEDS ME hue: per-channel ACES would wash #FF5F1F to amber/cream at these
+// NEEDS ME hue: per-channel ACES would wash #FF6A00 to amber/cream at these
 // luminances. engine.js's output pass tone-maps pixels in the NEEDS ME hue
 // band hue-preservingly, so the orange layers here stay pure NEEDS_ME and
 // only the small white-hot core carries NEEDS_ME_CORE.
@@ -344,7 +344,7 @@ export class Star {
 
   /** Current visual radius in system units (1 normally; 0.22 as a remnant; 0→1 during birth). */
   get radius() {
-    return this._birthScale * this._crashScale;
+    return this._birthScale * this._crashScale * this.fateScale;
   }
 
   /** Current HDR peak luminance of anything this star draws (QA ladder checks). */
@@ -399,6 +399,7 @@ export class Star {
     this._birthScale = 1;
     this._lum = 0;
     this._motionRate = 1;
+    this.fateScale = 1;
   }
 
   /**
@@ -546,7 +547,8 @@ export class Star {
     const b = this._birth;
     this._birthScale = Math.max(1e-3, b * b * (3 - 2 * b));
     const fade = clamp(b * 1.6, 0, 1);
-    this.body.scale.setScalar(this._birthScale);
+    // fateScale: set by StarSystem during the death cycle (swell, then collapse).
+    this.body.scale.setScalar(this._birthScale * this.fateScale);
 
     // ---- phases -----------------------------------------------------------
     const turb = lerp(0.2, 1.0, act) * alive * (1 - remnant);

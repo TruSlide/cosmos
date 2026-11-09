@@ -23,7 +23,7 @@ function setup(obj, { raw } = {}) {
   if (raw !== undefined) fs.writeFileSync(file, raw);
   else if (obj !== undefined) fs.writeFileSync(file, JSON.stringify(obj, null, 2) + '\n');
   const backupDir = path.join(home, 'backups');
-  const cs = createClaudeSettings({ claudeHome, cosmosRoot: ROOT, backupDir, homeDir: HOME });
+  const cs = createClaudeSettings({ claudeHome, cosmosRoot: ROOT, backupDir });
   return { cs, file, backupDir, home };
 }
 
@@ -40,10 +40,10 @@ const BASE = {
   zLast: [1, 2, 3],
 };
 
-test('read: launchHook and cleanupPeriodDays', () => {
+test('read: cleanupPeriodDays (the launch-prompt hook is no longer managed)', () => {
   const { cs } = setup(BASE);
   const r = cs.read();
-  assert.equal(r.launchHook, true);
+  assert.equal('launchHook' in r, false);
   assert.equal(r.cleanupPeriodDays, null);
   assert.match(r.hash, /^[0-9a-f]{64}$/);
 });
@@ -88,43 +88,13 @@ test('apply refuses when the file changed since preview (409), writes nothing', 
   assert.equal(fs.existsSync(backupDir), false, 'no backup when nothing is applied');
 });
 
-test('launchHook off removes only the Cosmos entry; on adds it back exactly', () => {
-  const { cs, file } = setup(BASE);
-  let p = cs.preview('launchHook', 'off');
-  let r = cs.apply('launchHook', 'off', p.hash);
-  let j = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.equal(r.after.launchHook, false);
-  assert.deepEqual(j.hooks.SessionStart, [BASE.hooks.SessionStart[1]]);
-  assert.deepEqual(j.hooks.PreToolUse, BASE.hooks.PreToolUse);
-  p = cs.preview('launchHook', 'on');
-  r = cs.apply('launchHook', 'on', p.hash);
-  j = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.equal(r.after.launchHook, true);
-  assert.deepEqual(j.hooks.SessionStart[1], BASE.hooks.SessionStart[0], 'the exact DATA_SPEC §6 entry');
-  // on again: noop, no write, no backup
-  p = cs.preview('launchHook', 'on');
-  assert.equal(p.noop, true);
-  assert.deepEqual(p.diff, []);
-  const r2 = cs.apply('launchHook', 'on', p.hash);
-  assert.equal(r2.noop, true);
-  assert.equal(r2.backupPath, null);
-});
-
-test('launchHook off drops an emptied SessionStart and hooks object', () => {
-  const only = { theme: 'dark', hooks: { SessionStart: [BASE.hooks.SessionStart[0]] } };
-  const { cs, file } = setup(only);
-  const p = cs.preview('launchHook', 'off');
-  cs.apply('launchHook', 'off', p.hash);
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { theme: 'dark' });
-});
-
-test('only the two allowed changes, with bounds', () => {
+test('only cleanupPeriodDays can change, with bounds', () => {
   const { cs } = setup(BASE);
   assert.throws(() => cs.preview('theme', 'light'), (e) => e.status === 400);
   assert.throws(() => cs.preview('cleanupPeriodDays', '0'), (e) => e.status === 400);
   assert.throws(() => cs.preview('cleanupPeriodDays', '3651'), (e) => e.status === 400);
   assert.throws(() => cs.preview('cleanupPeriodDays', '12.5'), (e) => e.status === 400);
-  assert.throws(() => cs.preview('launchHook', 'maybe'), (e) => e.status === 400);
+  assert.throws(() => cs.preview('launchHook', 'on'), (e) => e.status === 400);
   assert.throws(() => cs.apply('cleanupPeriodDays', 5, 'nothash'), (e) => e.status === 400);
 });
 
@@ -137,22 +107,19 @@ test('non-standard formatting is flagged; invalid JSON is refused', () => {
   assert.throws(() => bad.cs.preview('cleanupPeriodDays', 45), (e) => e.status === 409);
 });
 
-test('a temp COPY of the real settings file round-trips (on/off) to identical bytes', () => {
+test('a temp COPY of the real settings file round-trips cleanupPeriodDays with every other value kept', () => {
   if (!realHashBefore) return;
   const raw = fs.readFileSync(REAL, 'utf8');
-  // A launch hook installed for a Cosmos in another folder can't round-trip against this test's folder.
-  if (raw.includes('cosmos-offer.sh') && !raw.includes(JSON.stringify(COSMOS_CMD).slice(1, -1))) return;
   const { cs, file } = setup(undefined, { raw });
-  const had = cs.read().launchHook;
-  const flip = had ? 'off' : 'on';
-  const back = had ? 'on' : 'off';
-  let p = cs.preview('launchHook', flip);
-  cs.apply('launchHook', flip, p.hash);
-  p = cs.preview('launchHook', back);
-  cs.apply('launchHook', back, p.hash);
-  const reparsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.deepEqual(reparsed, JSON.parse(raw));
-  if (JSON.stringify(JSON.parse(raw), null, 2) + '\n' === raw) assert.equal(fs.readFileSync(file, 'utf8'), raw);
+  const was = JSON.parse(raw).cleanupPeriodDays;
+  let p = cs.preview('cleanupPeriodDays', 77);
+  cs.apply('cleanupPeriodDays', 77, p.hash);
+  const mid = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(mid.cleanupPeriodDays, 77);
+  const { cleanupPeriodDays: _a, ...restMid } = mid;
+  const { cleanupPeriodDays: _b, ...restRaw } = JSON.parse(raw);
+  assert.deepEqual(restMid, restRaw);
+  if (Number.isInteger(was)) { p = cs.preview('cleanupPeriodDays', was); cs.apply('cleanupPeriodDays', was, p.hash); }
 });
 
 test('lineDiff basics', () => {

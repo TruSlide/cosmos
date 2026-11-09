@@ -7,6 +7,8 @@
 
 import { createSound } from '../hud/sound.js';
 import { createRecorder } from '../hud/recorder.js';
+import { createPip } from '../hud/pip.js';
+import { createAway } from '../hud/away.js';
 import { createEngine } from '../engine.js';
 import { createClientStore } from './store.js';
 import { createGalaxy } from './galaxy.js';
@@ -152,6 +154,47 @@ function boot() {
     // Sound (off until Settings > Sound is on).
     dbg.sound = createSound(store);
     dbg.recorder = createRecorder(engine.renderer.domElement, { token });
+    // Picture-in-picture: dying systems as time-lapses (else flourishing ones).
+    try { dbg.away = createAway(store); } catch (err) { console.warn('[cosmos] away card unavailable', err); }
+    try { dbg.pip = createPip(store); } catch (err) { console.warn('[cosmos] picture-in-picture unavailable', err); }
+
+    // Codex: the read-only knowledge list (GET /api/knowledge). Refreshed every
+    // minute, and right after a live session saves knowledge (which also sends
+    // a gold beam from that session to the crystal).
+    const knowledge = { data: null, listeners: new Set(), on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); } };
+    store.knowledge = knowledge;
+    let knowledgeLoads = 0;
+    async function loadKnowledge(fresh = false) {
+      try {
+        const r = await fetch(`/api/knowledge${fresh ? '?fresh=1' : ''}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        knowledge.data = await r.json();
+        galaxy.setKnowledge(knowledge.data.items, { quiet: knowledgeLoads++ === 0 });
+        for (const fn of knowledge.listeners) fn(knowledge.data);
+        hud.panels?.refresh?.();
+        if (knowledgeLoads === 1) dbg.away?.maybeShow();   // "while you were away": once, after the first load
+        if (knowledgeLoads < 4 && !(knowledge.data.counts?.rules > 0)) setTimeout(() => loadKnowledge(true), 5000);
+      } catch { /* the Codex keeps its last list */ }
+    }
+    loadKnowledge();
+    // Parking Lot moons around "me" (same list as /pending).
+    async function loadParking() {
+      try {
+        const r = await fetch('/api/pending', { cache: 'no-store' });
+        if (r.ok) galaxy.center.setParking((await r.json()).groups || []);
+      } catch { /* moons keep their last list */ }
+    }
+    loadParking();
+    setInterval(loadParking, 60000);
+    setInterval(() => loadKnowledge(), 60000);
+    const KNOWLEDGE_FILE = /(\.claude\/kit\.md|\.claude\/projects\/[^/]+\/memory\/(?!MEMORY\.md$)[^/]+\.md|\.claude\/skills\/[^/]+\/SKILL\.md|(^|\/)CLAUDE\.md|(^|\/)DECISIONS\.md|playbook[^/]*\.md)$/i;
+    store.on('event', (ev) => {
+      if (ev?.type !== 'file-touch' || store.time.mode !== 'live') return;
+      const d = ev.data || {};
+      if (d.op === 'read' || !KNOWLEDGE_FILE.test(String(d.path || ''))) return;
+      galaxy.beamFrom(ev.sid);
+      setTimeout(() => loadKnowledge(true), 2800);   // the new shard grows in as the beam lands
+    });
 
     // 9. Wake hooks + the needs-me latency proof.
     store.on('needs-me', (e) => {
@@ -167,6 +210,11 @@ function boot() {
       });
     });
     store.on('session', () => engine.wake(0.5));
+    // Rebirth: a dying or dead session came back; its system re-forms in a white-hole burst.
+    store.on('reborn', (e) => {
+      engine.wake(5);
+      hud.toasts?.show?.(`${e.title || 'A session'} came back to life`, { kind: 'info', ms: 4000 });
+    });
     store.on('event', () => engine.wake(0.5));
     store.on('settings', () => {
       const q2 = store.settings?.render?.quality;

@@ -110,7 +110,7 @@ export function createTopbar(topbarEl, { store, galaxy = null, labels = null, pa
     h('span', { text: 'Search' }), h('kbd', { text: '/' }));
   searchBtn.addEventListener('click', () => actions.openSearch?.());
 
-  // NEEDS ME pill: reserved orange; hourglass shape + word + count, so it reads without color.
+  // NEEDS ME pill: reserved indigo; hourglass shape + word + count, so it reads without color.
   const needsN = h('span.hud-num');
   const needsWait = h('span.hud-needs-pill__wait');
   const needsPill = h('button.hud-needs-pill', { type: 'button', hidden: true, title: 'Jump to the next session that needs you (N)' },

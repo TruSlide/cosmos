@@ -7,8 +7,8 @@
 //      until Save, which calls store.saveSettings() → POST /api/settings
 //      (writes cosmos/settings.json and cosmos/limits.json: WRITES LIST W6/W7).
 //
-//   2. Two Claude Code settings in ~/.claude/settings.json: transcript retention
-//      (cleanupPeriodDays) and the Cosmos launch-prompt hook. Each change goes
+//   2. One Claude Code setting in ~/.claude/settings.json: transcript retention
+//      (cleanupPeriodDays). Each change goes
 //      Preview → exact line diff (red/green, monospace) → "Back up and apply".
 //      Never applied without that click; applied with the preview's expectHash,
 //      so a file that changed since the preview is refused (409) and must be
@@ -20,11 +20,6 @@ import { h, setText, setClass, baseName } from './panels.js';
 import { SETTINGS_DEFAULTS } from '../shared/settings.mjs';
 import { idleFraction, idleK } from '../shared/schema.mjs';
 
-const ENTRYPOINTS = [
-  ['cli', 'Terminal (claude)'],
-  ['claude-desktop', 'Claude desktop app'],
-  ['claude-vscode', 'VS Code extension'],
-];
 const EXPLAIN_MODELS = [['haiku', 'Haiku (cheapest)'], ['sonnet', 'Sonnet'], ['opus', 'Opus (deepest)']];
 
 /** Field table: [path, label, kind, opts, help]. */
@@ -53,12 +48,22 @@ const SECTIONS = [
     ['render.fpsCap', 'Frame-rate cap', 'select', { options: [[30, '30 fps'], [60, '60 fps'], [120, '120 fps']], number: true }],
     ['render.idleFps', 'Frame rate when calm', 'num', { min: 2, max: 30, step: 1, unit: 'fps' }],
     ['render.maxFullSystems', 'Full-detail systems', 'num', { min: 1, max: 12, step: 1 }, 'Others draw as light points until you come close.'],
-    ['render.dof', 'Depth of field when focused', 'bool', {}, 'Softly blurs what is nearer or farther than the system you flew into.'],
+    ['render.dof', 'Soft screen edges when focused', 'bool', {}, 'Blurs only the edges of the screen when you fly into a system; the middle stays sharp.'],
+    ['render.constellations', 'Shared-file lines', 'bool', {}, 'Faint lines between sessions that edited the same files; pulsing amber when two live sessions edit the same file within 30 minutes (they may overwrite each other).'],
+    ['render.spend', 'Spend lens', 'bool', {}, 'Color every star system by tokens spent today: cool and small for little, hot rose and large for a lot. Key $ toggles it.'],
+    ['render.pip', 'Picture-in-picture', 'bool', {}, 'A small window that plays each dying system\'s death as a time-lapse, or shows flourishing systems when nothing is dying.'],
+    ['render.deepSky', 'Deep-sky background', 'bool', {}, 'Distant galaxies, star clusters and nebulae with real depth; more fill in as your lifetime tokens grow. Decorative only.'],
   ] },
   { id: 'labels', title: 'Labels', fields: [
     ['labels.enabled', 'Labels on', 'bool', null, 'L toggles them any time.'],
     ['labels.density', 'Density', 'select', { options: [['sparse', 'Sparse'], ['normal', 'Normal'], ['dense', 'Dense']] }],
     ['labels.numbers', 'Show numbers on labels', 'bool'],
+    ['labels.sessions', 'Session labels', 'select', { options: [['hover', 'Only on hover'], ['always', 'Always']] }, 'Name boxes on star systems: only for the one under your mouse (or selected), or always.'],
+  ] },
+  { id: 'notify', title: 'Notifications', note: 'Mac notifications from the Cosmos server, so you hear about it even when Cosmos is closed (the server must be running).', fields: [
+    ['notify.crash', 'When a session crashes', 'bool'],
+    ['notify.needs', 'When a session has needed you for a while', 'bool'],
+    ['notify.needsAfterS', 'Wait before notifying', 'num', { min: 10, max: 600, step: 10, unit: 's' }, 'Prompts you answer within this time stay quiet.'],
   ] },
   { id: 'sound', title: 'Sound', note: 'Real NASA recordings: Saturn radio emissions and Earth chorus waves as the ambient bed, Sputnik\'s beep as the needs-me chime. U mutes.', fields: [
     ['sound.enabled', 'Sound on', 'bool'],
@@ -66,10 +71,6 @@ const SECTIONS = [
     ['sound.ambient', 'Ambient bed', 'bool'],
     ['sound.chime', 'Chime when a session needs me', 'bool'],
   ] },
-  { id: 'launch', title: 'Launch prompt', note: 'The small "Open Cosmos?" window when you start a session and Cosmos is not open.', fields: [
-    ['launch.enabled', 'Offer to open Cosmos', 'bool'],
-    ['launch.entrypoints', 'For sessions started from', 'multi', { options: ENTRYPOINTS }],
-  ], extra: 'launchNote' },
   { id: 'explain', title: 'Explain with Claude', fields: [
     ['explain.model', 'Model', 'select', { options: EXPLAIN_MODELS }, 'Used only when you click "Explain with Claude" in a diagnosis.'],
   ] },
@@ -305,7 +306,6 @@ export function createSettings(modalRoot, { store, toasts = null }) {
         fs.append(c);
       }
       if (sec.extra === 'idleCurve') fs.append(curve, curveNote);
-      if (sec.extra === 'launchNote') fs.append(h('p.hud-field__help', { text: 'This only changes what the hook does. Adding or removing the hook itself is in the Claude Code tab.' }));
       paneCosmos.append(fs);
     }
     const armsFs = h('fieldset.hud-set__sec', null, h('legend', null, h('span', { text: 'Projects and arms' })));
@@ -379,7 +379,6 @@ export function createSettings(modalRoot, { store, toasts = null }) {
   const ccStatus = h('div.hud-cc__status');
   const daysIn = h('input.hud-input.hud-input--num', { type: 'number', min: 1, max: 3650, step: 1, 'aria-label': 'Days to keep transcripts' });
   const daysBtn = h('button.hud-btn', { type: 'button', text: 'Preview change' });
-  const hookBtn = h('button.hud-btn', { type: 'button', text: 'Preview' });
   const previewEl = h('div.hud-cc__preview', { hidden: true, 'aria-live': 'polite' });
   const resultEl = h('div.hud-cc__result', { hidden: true, role: 'status' });
   paneClaude.append(
@@ -388,9 +387,6 @@ export function createSettings(modalRoot, { store, toasts = null }) {
     h('fieldset.hud-set__sec', null, h('legend', null, h('span', { text: 'Transcript retention' })),
       h('p.hud-set__note', { text: 'How many days Claude Code keeps session transcripts before cleaning them up (cleanupPeriodDays). Cosmos history only reaches back as far as transcripts survive (plus its own cache).' }),
       h('div.hud-field', null, h('label', { text: 'Keep transcripts for' }), h('div.hud-field__ctl', null, daysIn, h('span.hud-field__unit', { text: 'days' }), daysBtn))),
-    h('fieldset.hud-set__sec', null, h('legend', null, h('span', { text: 'Launch prompt hook' })),
-      h('p.hud-set__note', { text: 'The SessionStart hook that offers to open Cosmos when you start a session and Cosmos is not already open.' }),
-      h('div.hud-field', null, h('span.hud-field__label', { text: 'Hook' }), h('div.hud-field__ctl', null, h('span.hud-cc__hook'), hookBtn))),
     previewEl, resultEl);
 
   async function loadClaude() {
@@ -401,9 +397,6 @@ export function createSettings(modalRoot, { store, toasts = null }) {
       setText(ccStatus, `File: ${cur.path || '~/.claude/settings.json'}`);
       daysIn.value = cur.cleanupPeriodDays ?? '';
       daysIn.placeholder = cur.cleanupPeriodDays == null ? '30 (default)' : '';
-      const hookEl = paneClaude.querySelector('.hud-cc__hook');
-      setText(hookEl, cur.launchHook ? 'installed' : 'not installed');
-      setText(hookBtn, cur.launchHook ? 'Preview removing it' : 'Preview adding it');
     } catch (err) {
       setText(ccStatus, `Could not read it: ${err?.message || 'server error'}`);
     }
@@ -424,7 +417,7 @@ export function createSettings(modalRoot, { store, toasts = null }) {
     } finally { cc.busy = false; }
   }
   function renderPreview(pv) {
-    const label = pv.change === 'cleanupPeriodDays' ? `Keep transcripts for ${pv.value} days` : pv.value === 'on' ? 'Add the Cosmos launch hook' : 'Remove the Cosmos launch hook';
+    const label = `Keep transcripts for ${pv.value} days`;
     if (pv.noop) {
       previewEl.replaceChildren(h('h3', { text: label }), h('p', { text: 'Nothing to change: the file already says this.' }));
       return;
@@ -459,7 +452,7 @@ export function createSettings(modalRoot, { store, toasts = null }) {
       resultEl.replaceChildren(
         h('strong', { text: res?.ok === false ? 'Not applied.' : 'Applied.' }),
         h('p', null, 'Backup: ', h('code', { text: res?.backupPath || pv.backupPath })),
-        h('p', { text: `Now: transcripts kept ${a.cleanupPeriodDays ?? 'default (30)'} days · launch hook ${a.launchHook ? 'installed' : 'not installed'}.` }));
+        h('p', { text: `Now: transcripts kept ${a.cleanupPeriodDays ?? 'default (30)'} days.` }));
       say('Claude Code settings updated (backup saved)');
       await loadClaude();
     } catch (err) {
@@ -478,7 +471,6 @@ export function createSettings(modalRoot, { store, toasts = null }) {
     setClass(daysIn, 'is-invalid', false);
     preview('cleanupPeriodDays', n);
   });
-  hookBtn.addEventListener('click', () => preview('launchHook', cc.current?.launchHook ? 'off' : 'on'));
 
   // ---------------------------------------------------------------- open / close
   closeBtn.addEventListener('click', () => close());

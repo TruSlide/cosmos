@@ -68,6 +68,14 @@
       0%, 100% { opacity: 0.55; transform: scale(0.92); }
       18% { opacity: 1; transform: scale(1.08); }
     }
+    /* Crashed (louder than needs-me): orange, a fast double-flash strobe. */
+    .cz-edge--crash { border: 1.5px solid var(--cz-crash); color: var(--cz-crash-core); box-shadow: 0 0 12px color-mix(in srgb, var(--cz-crash) 55%, transparent); }
+    .cz-edge--crash .cz-edge-chev { border-left-color: var(--cz-crash); }
+    .cz-edge--crash .cz-edge-glyph { fill: var(--cz-crash); animation: cz-crash 1.2s infinite; }
+    @keyframes cz-crash {
+      0%, 9%, 18%, 27%, 100% { opacity: 0.5; transform: scale(0.95); }
+      4%, 22% { opacity: 1; transform: scale(1.15); }
+    }
     @media (prefers-reduced-motion: reduce) {
       .cz-edge-glyph { animation: none; opacity: 1; }
     }

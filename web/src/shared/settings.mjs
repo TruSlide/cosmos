@@ -10,9 +10,9 @@ export const SETTINGS_DEFAULTS = Object.freeze({ v: 1,
   timeouts: Object.freeze({ stalledS: 600, ambiguousS: 30, shipActiveS: 90, shipDoneS: 240, noRegistryWorkingS: 600 }),
   arms:     Object.freeze({}),   // { [armKey]: { slot?: 0..11, name?: string } }  owner overrides; auto slots live in cache/layout.json
   sound:    Object.freeze({ enabled: false, volume: 0.5, ambient: true, chime: true }),
-  render:   Object.freeze({ quality: 'high', fpsCap: 60, idleFps: 10, maxFullSystems: 6, dof: true }),
-  labels:   Object.freeze({ enabled: true, density: 'normal', numbers: true }),   // density: 'sparse'|'normal'|'dense'
-  launch:   Object.freeze({ enabled: true, entrypoints: Object.freeze(['cli', 'claude-desktop', 'claude-vscode']) }),
+  notify:   Object.freeze({ crash: true, needs: true, needsAfterS: 60 }),
+  render:   Object.freeze({ quality: 'high', fpsCap: 60, idleFps: 10, maxFullSystems: 6, dof: true, deepSky: true, pip: true, constellations: true, spend: false }),
+  labels:   Object.freeze({ enabled: true, density: 'normal', numbers: true, sessions: 'hover' }),   // density: 'sparse'|'normal'|'dense'
   explain:  Object.freeze({ model: 'haiku' }),
 });
 
@@ -41,6 +41,11 @@ export const SETTINGS_RULES = Object.freeze({
     shipDoneS:          { num: [5, 86400] },
     noRegistryWorkingS: { num: [30, 86400] },
   },
+  notify: {
+    crash:       { bool: true },
+    needs:       { bool: true },
+    needsAfterS: { num: [10, 3600, true] },
+  },
   sound: {
     enabled: { bool: true },
     volume:  { num: [0, 1] },
@@ -53,16 +58,18 @@ export const SETTINGS_RULES = Object.freeze({
     idleFps:        { num: [1, 60, true] },
     maxFullSystems: { num: [1, 16, true] },
     dof:            { bool: true },
+    deepSky:        { bool: true },
+    pip:            { bool: true },
+    constellations: { bool: true },
+    spend:          { bool: true },
   },
   labels: {
     enabled: { bool: true },
     density: { enum: ['sparse', 'normal', 'dense'] },
     numbers: { bool: true },
+    sessions: { enum: ['hover', 'always'] },
   },
-  launch: {
-    enabled:     { bool: true },
-    entrypoints: { list: ['cli', 'claude-desktop', 'claude-vscode'] },
-  },
+
   explain: {
     model: { enum: ['haiku', 'sonnet', 'opus'] },
   },

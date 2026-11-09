@@ -44,5 +44,10 @@ export function normalizeState(raw, out = {}) {
   out.toolCalls = Array.isArray(raw.toolCalls) ? raw.toolCalls : EMPTY;
   out.subagents = Array.isArray(raw.subagents) ? raw.subagents : EMPTY;
   out.files = Array.isArray(raw.files) ? raw.files : EMPTY;
+  // Fate (owner, 2026-11-08): 'dying' sessions break apart over their death
+  // cycle (deathPhase 0..1, restarting daily once dead); 'flourish' sessions
+  // (archived or closed cleanly) become lush, calm systems. null: neither.
+  out.fate = raw.fate === 'dying' || raw.fate === 'flourish' ? raw.fate : null;
+  out.deathPhase = out.fate === 'dying' && finite(raw.deathPhase) ? clamp01(raw.deathPhase) : 0;
   return out;
 }

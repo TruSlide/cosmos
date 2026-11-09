@@ -21,6 +21,9 @@
 import * as THREE from 'three';
 import { PLANET_COLORS, color, starColor } from '../lib/palette.js';
 
+// Death cycle (state.deathPhase): the world breaks apart between these phases.
+const DOOM_START = 0.55;
+const DOOM_END = 0.86;
 const PLANET_FILL_CAP = 0.5;   // starColor(0.5) = STAR_FILL_50, same cap as belt.js
 import { hash01, damp, clamp } from '../lib/math.js';
 
@@ -272,6 +275,12 @@ const AGE_GLSL = /* glsl */ `
 
 const SURFACE_VERT = /* glsl */ `
   ${ORBIT_GLSL}
+  ${NOISE_GLSL}
+  // Death cycle (owner, 2026-11-08): uDoom 0..1 breaks the world into crust
+  // plates (the same cells the fragment shader cuts along): each plate shrinks
+  // toward its own center and drifts outward, so the planet comes apart.
+  uniform float uDoom;
+  varying vec3 vPlate;   // plate center this vertex belongs to (constant inside a plate)
   varying vec3 vObj;
   varying vec3 vNormalW;
   varying vec3 vPosW;
@@ -286,7 +295,32 @@ const SURFACE_VERT = /* glsl */ `
     float a = aOrbit2.y * uTime;
     float ca = cos(a), sa = sin(a);
     vObj = vec3(ca * position.x - sa * position.z, position.y, sa * position.x + ca * position.z);
-    vec4 world = modelMatrix * vec4(center + position * s, 1.0);
+    vec3 local = position;
+    vPlate = vec3(0.0);
+    if (uDoom > 0.001) {
+      // Nearest plate center in the spun frame (matches pl_vor in the fragment shader).
+      float seed = aOrbit2.w * 31.0 + 7.0;
+      vec3 q = normalize(vObj) * 2.2;
+      vec3 cb = floor(q);
+      vec3 best = q;
+      float bd = 9.0;
+      for (int z = -1; z <= 1; z++)
+      for (int y = -1; y <= 1; y++)
+      for (int x = -1; x <= 1; x++) {
+        vec3 cell = cb + vec3(float(x), float(y), float(z));
+        vec3 cc = cell + 0.15 + 0.7 * pl_hash3(cell + seed * 1.91);
+        float d = length(q - cc);
+        if (d < bd) { bd = d; best = cc; }
+      }
+      vPlate = best;
+      vec3 dir = normalize(best);
+      float h = fract(dot(best, vec3(0.37, 0.71, 0.13)) * 13.7);
+      vec3 spun = normalize(vObj);
+      spun = mix(spun, dir, 0.32 * uDoom) + dir * uDoom * (0.5 + 1.1 * h);
+      // Back from the spun frame to mesh space.
+      local = vec3(ca * spun.x + sa * spun.z, spun.y, -sa * spun.x + ca * spun.z);
+    }
+    vec4 world = modelMatrix * vec4(center + local * s, 1.0);
     vPosW = world.xyz;
     vNormalW = normalize(mat3(modelMatrix) * normal);
     vColor = aColor;
@@ -303,6 +337,9 @@ const SURFACE_FRAG = /* glsl */ `
   uniform vec3 uLight;      // star light, luminance-normalized * intensity
   uniform vec3 uPingColor;
   uniform float uDesat;
+  uniform float uDoom;       // 0..1 the world breaks into drifting plates
+  uniform float uFlourish;   // 0..1 archived / cleanly closed: oceans, land, clouds, aurora
+  varying vec3 vPlate;
   varying vec3 vObj;
   varying vec3 vNormalW;
   varying vec3 vPosW;
@@ -372,6 +409,46 @@ const SURFACE_FRAG = /* glsl */ `
     vec3 base = vStyle.x < 0.5 ? banded(p, vColor, seed) : rocky(p, vColor, seed);
     vec3 emis = pl_age(p, seed, base);
 
+    // Breaking apart: cut along the plate boundaries, widening with uDoom; the
+    // broken edges smoulder in the same dull ember as the cracks.
+    if (uDoom > 0.001) {
+      // Which plate is this fragment on? A triangle that straddles two plates is
+      // stretched across the gap by the vertex shader: its interpolated vPlate
+      // matches neither plate, so it is cut away (no spikes between plates).
+      vec3 q = p * 2.2;
+      vec3 cb = floor(q);
+      vec3 best = q;
+      float f1 = 9.0, f2 = 9.0;
+      for (int z = -1; z <= 1; z++)
+      for (int y = -1; y <= 1; y++)
+      for (int x = -1; x <= 1; x++) {
+        vec3 cell = cb + vec3(float(x), float(y), float(z));
+        vec3 cc = cell + 0.15 + 0.7 * pl_hash3(cell + (seed + 7.0) * 1.91);
+        float d = length(q - cc);
+        if (d < f1) { f2 = f1; f1 = d; best = cc; } else if (d < f2) { f2 = d; }
+      }
+      if (distance(best, vPlate) > 0.02) discard;
+      float edge = f2 - f1;
+      float gap = uDoom * 0.22;
+      if (edge < gap) discard;
+      float rim = 1.0 - smoothstep(0.0, 0.05, edge - gap);
+      emis += PL_EMBER * 3.0 * rim * (1.0 - 0.8 * uDoom);
+      emis += base * 0.1 * uDoom;   // plates stay legible after they tumble into shadow
+      base *= 1.0 - 0.25 * uDoom;
+    }
+    // Flourishing: oceans, green land, drifting clouds and a faint polar aurora.
+    if (uFlourish > 0.001) {
+      float land = smoothstep(-0.04, 0.1, pl_fbm(p * 1.7 + seed * 0.7));
+      vec3 ocean = vec3(0.03, 0.11, 0.24);
+      vec3 green = vec3(0.09, 0.27, 0.12);
+      vec3 lush = mix(ocean, mix(green, base, 0.3), land);
+      float cloud = smoothstep(0.08, 0.5, pl_fbm(p * vec3(2.5, 5.0, 2.5) + vec3(uFxTime * 0.01, 0.0, 0.0) + seed));
+      lush = mix(lush, vec3(0.82), cloud * 0.55);
+      base = mix(base, lush, uFlourish * (vStyle.x < 0.5 ? 0.45 : 1.0));
+      float aur = smoothstep(0.8, 0.95, abs(p.y)) * (0.5 + 0.5 * sin(uFxTime * 0.7 + p.x * 8.0 + p.z * 5.0));
+      emis += vec3(0.08, 0.4, 0.28) * aur * 0.22 * uFlourish;
+    }
+
     vec3 N = normalize(vNormalW);
     vec3 V = normalize(cameraPosition - vPosW);
     vec3 L = normalize(uStarW - vPosW);
@@ -383,7 +460,7 @@ const SURFACE_FRAG = /* glsl */ `
     col += emis * (1.0 - 0.45 * clamp(ndl, 0.0, 1.0));   // embers read dimmer in daylight
     float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 4.0);
     vec3 atmo = mix(vColor, vec3(pl_lum(vColor) * 1.3), 0.45) * uLight;
-    float thin = 1.0 - 0.85 * smoothstep(0.45, 0.95, uAge);   // atmosphere boils away
+    float thin = (1.0 - 0.85 * smoothstep(0.45, 0.95, uAge)) * (1.0 + 0.8 * uFlourish) * (1.0 - uDoom);   // atmosphere boils away; lush worlds keep a thick one
     col += atmo * fres * (0.03 + 0.97 * smoothstep(-0.25, 0.6, ndl)) * 0.55 * thin;
     col += uPingColor * fres * vPing * 1.4;
 
@@ -398,12 +475,14 @@ const SURFACE_FRAG = /* glsl */ `
 const HALO_VERT = /* glsl */ `
   ${ORBIT_GLSL}
   uniform float uShell;
+  uniform float uDoom;
   varying vec3 vNormalW;
   varying vec3 vPosW;
   varying vec3 vColor;
   varying float vPing;
   void main() {
-    float s = pl_size() * uShell;
+    // The atmosphere shell is the first thing a breaking world loses.
+    float s = pl_size() * uShell * (1.0 - smoothstep(0.0, 0.3, uDoom));
     vec3 center = pl_orbit(aOrbit, aOrbit2.x);
     vec4 world = modelMatrix * vec4(center + position * s, 1.0);
     vPosW = world.xyz;
@@ -492,6 +571,8 @@ export class Planets {
       uPingColor: { value: color('SHIP_TOOL') },
       uDesat: { value: 0 },
       uAge: { value: 0 },
+      uDoom: { value: 0 },
+      uFlourish: { value: 0 },
       uFxTime: { value: 0 },
     };
     const octaves = q === 'low' ? 3 : q === 'medium' ? 4 : 5;
@@ -540,6 +621,8 @@ export class Planets {
     this._lightI = 1;
     this._desat = 0;
     this._age = 0;
+    this._doom = 0;
+    this._flourish = 0;
     this._fxT = 0;
     this._scratchColor = new THREE.Color();
   }
@@ -580,6 +663,14 @@ export class Planets {
     this._age = damp(this._age, targetAge, 1.5, dt);
     if (Math.abs(this._age - targetAge) < 1e-4) this._age = targetAge;
     this._uniforms.uAge.value = this._age;
+    // Fate: dying worlds break apart after their aging stages; flourishing ones turn lush.
+    const ph = state.fate === 'dying' ? state.deathPhase || 0 : 0;
+    const doomT = state.fate === 'dying' ? clamp((ph - DOOM_START) / (DOOM_END - DOOM_START), 0, 1) : 0;
+    const flourT = state.fate === 'flourish' ? 1 : 0;
+    this._doom = damp(this._doom, doomT * doomT * (3 - 2 * doomT), 1.2, dt);
+    this._flourish = damp(this._flourish, flourT, 1.5, dt);
+    this._uniforms.uDoom.value = this._doom < 1e-3 ? 0 : this._doom;
+    this._uniforms.uFlourish.value = this._flourish < 1e-3 ? 0 : this._flourish;
     const c = this._scratchColor;
     // Capped like the belt: high fill (compaction) would light every planet red
     // and read as an error. The red belongs to the star alone.

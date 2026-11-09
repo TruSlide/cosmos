@@ -15,6 +15,10 @@
 // but hidden under a panel gets a marker too.
 //
 // This file and star.js are the only scene modules allowed to use NEEDS_ME.
+//
+// kind 'crash' (owner, 2026-11-08): the same machinery draws a CRASHED distress
+// beacon, louder than the quasar: bigger, orange, a fast double-flash strobe
+// with a burst of sparks, and its own edge markers.
 
 import * as THREE from 'three';
 import { color, PALETTE } from '../lib/palette.js';
@@ -84,6 +88,17 @@ void main() {
   // the quasar out-shine the core. Fades to zero before the quad edge.
   float wide = exp(-r / 0.6) * (0.30 + 0.30 * uPulse) * (1.0 - smoothstep(${(HALO * 0.6).toFixed(2)}, ${(HALO * 0.98).toFixed(2)}, r));
   vec3 c = uJet * (jet + halo + wide) + uCore * core;
+#ifdef CRASH
+  // Distress: no jets. A hot core, a ring that flashes twice per beat and
+  // eight short sparks, all in CRASHED orange.
+  float rr = length(p);
+  float ang = atan(p.y, abs(p.x) < 1e-5 ? 1e-5 : p.x);
+  float ring = exp(-pow((rr - 0.55) / 0.06, 2.0)) * (1.5 + 5.0 * uPulse);
+  float spark = pow(abs(cos(ang * 4.0)), 24.0) * smoothstep(0.25, 0.4, rr) * (1.0 - smoothstep(0.75, 0.95, rr)) * (1.0 + 4.0 * uPulse);
+  float hot = exp(-rr * rr / 0.01) * (5.0 + 10.0 * uPulse);
+  float glow = exp(-rr / 0.5) * (0.35 + 0.5 * uPulse) * (1.0 - smoothstep(${(HALO * 0.6).toFixed(2)}, ${(HALO * 0.98).toFixed(2)}, rr));
+  c = uJet * (ring + spark + glow) + uCore * hot;
+#endif
   gl_FragColor = vec4(c * vAlpha, 0.0);
 }`;
 
@@ -117,6 +132,7 @@ export class Beacons {
    */
   constructor(parent, ctx, opts = {}) {
     this._ctx = ctx;
+    this._crash = opts.kind === 'crash';
     this.root = new THREE.Group();
     this.root.name = 'NeedsMeBeacons';
     parent.add(this.root);
@@ -126,10 +142,11 @@ export class Beacons {
     this._uPulse = { value: 0 };
     this._uKnot = { value: 1 };
     this.material = new THREE.ShaderMaterial({
-      name: 'NeedsMeBeacon',
+      name: this._crash ? 'CrashBeacon' : 'NeedsMeBeacon',
+      defines: this._crash ? { CRASH: 1 } : {},
       uniforms: {
         uRes: this._uRes, uDpr: this._uDpr, uPulse: this._uPulse, uKnot: this._uKnot,
-        uJet: { value: color('NEEDS_ME') }, uCore: { value: color('NEEDS_ME_CORE') },
+        uJet: { value: color(this._crash ? 'CRASHED' : 'NEEDS_ME') }, uCore: { value: color(this._crash ? 'CRASHED_CORE' : 'NEEDS_ME_CORE') },
       },
       vertexShader: VERT, fragmentShader: FRAG,
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
@@ -159,6 +176,8 @@ export class Beacons {
       // Colour comes from the palette here, so no page CSS needs the reserved hex.
       this._edgeRoot.style.setProperty('--cz-needs', cssHex(PALETTE.NEEDS_ME));
       this._edgeRoot.style.setProperty('--cz-needs-core', cssHex(PALETTE.NEEDS_ME_CORE));
+      this._edgeRoot.style.setProperty('--cz-crash', cssHex(PALETTE.CRASHED));
+      this._edgeRoot.style.setProperty('--cz-crash-core', cssHex(PALETTE.CRASHED_CORE));
       this._onClick = (e) => {
         const el = e.target.closest?.('[data-sid]');
         if (el && this._onSelect) { e.stopPropagation(); this._onSelect(el.dataset.sid); }
@@ -189,7 +208,7 @@ export class Beacons {
     else {
       this._mesh = new THREE.Mesh(geo, this.material);
       this._mesh.frustumCulled = false;
-      this._mesh.renderOrder = 1e6;     // drawn last
+      this._mesh.renderOrder = this._crash ? 1e6 + 1 : 1e6;     // drawn last (crash on top)
       this._mesh.name = 'NeedsMeBeacons';
       this.root.add(this._mesh);
     }
@@ -200,6 +219,11 @@ export class Beacons {
   /** Quasar pulse (0..1) at render time t: the quasar's own curve. */
   pulse(t) {
     if (this._reduced) return 0.35;
+    if (this._crash) {
+      // Distress: two quick flashes every 1.2 s.
+      const ph = (t / 1.2) % 1;
+      return Math.max(Math.exp(-(((ph - 0.05) / 0.045) ** 2)), Math.exp(-(((ph - 0.24) / 0.045) ** 2)));
+    }
     const s = 0.5 + 0.5 * Math.sin((2 * Math.PI * t) / PULSE_PERIOD);
     return s * s * s * s;
   }
@@ -301,7 +325,9 @@ export class Beacons {
       if (m.deg !== deg) { m.chev.style.transform = `rotate(${deg}deg) translateX(25px)`; m.deg = deg; }
       if (m.sid !== q.sid) { m.el.dataset.sid = q.sid; m.sid = q.sid; }
       if (m.wait !== q.wait) { m.waitEl.textContent = q.wait; m.wait = q.wait; }
-      const label = `Needs you: ${q.title || q.sid.slice(0, 8)}, waiting ${q.wait}. Fly there.`;
+      const label = this._crash
+        ? `Crashed: ${q.title || q.sid.slice(0, 8)}, ${q.wait} ago. Fly there.`
+        : `Needs you: ${q.title || q.sid.slice(0, 8)}, waiting ${q.wait}. Fly there.`;
       if (m.label !== label) { m.el.setAttribute('aria-label', label); m.el.title = label; m.label = label; }
       if (m.hidden) { m.el.style.display = ''; m.hidden = false; }
       k++;
@@ -320,7 +346,7 @@ export class Beacons {
     let m = this._markers[i];
     if (m) return m;
     const el = document.createElement('div');
-    el.className = 'cz-edge';
+    el.className = this._crash ? 'cz-edge cz-edge--crash' : 'cz-edge';
     el.setAttribute('role', 'button');
     el.tabIndex = 0;
     const chev = document.createElement('span');
@@ -330,8 +356,10 @@ export class Beacons {
     glyph.setAttribute('class', 'cz-edge-glyph');
     glyph.setAttribute('aria-hidden', 'true');
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    // Hourglass: two jets meeting at the core.
-    path.setAttribute('d', 'M1.5 1h9L6.9 6.6h-1.8zM1.5 15h9L6.9 9.4h-1.8z');
+    // Hourglass: two jets meeting at the core. Crash: a burst.
+    path.setAttribute('d', this._crash
+      ? 'M6 0.5l1.1 4.6 3.9-2.5-2.5 3.9 4.1 1.5-4.1 1.5 2.5 3.9-3.9-2.5L6 15.5l-1.1-4.6-3.9 2.5 2.5-3.9L-0.6 8l4.1-1.5L1 2.6l3.9 2.5z'
+      : 'M1.5 1h9L6.9 6.6h-1.8zM1.5 15h9L6.9 9.4h-1.8z');
     const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     dot.setAttribute('cx', '6'); dot.setAttribute('cy', '8'); dot.setAttribute('r', '1.6');
     dot.setAttribute('class', 'cz-edge-core');

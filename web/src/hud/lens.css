@@ -63,7 +63,7 @@
   z-index: 5;
   background: rgba(2, 3, 10, 0.62);
   border-left: 3px solid var(--needs-me);
-  box-shadow: inset 0 0 0 1px rgba(255, 95, 31, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(91, 60, 255, 0.45);
 }
 .lbl--sys.is-needs .lbl__g { color: var(--needs-me); font-weight: 700; }
 .lbl--sys.is-needs .lbl__t { color: var(--needs-me-core); }
@@ -90,7 +90,7 @@
 
 .lbl.is-hov { background: rgba(10, 14, 28, 0.72); }
 .lbl.is-sel { background: var(--glass-strong); box-shadow: 0 0 0 1px var(--accent); z-index: 4; }
-.lbl.is-sel.is-needs { box-shadow: inset 0 0 0 1px rgba(255, 95, 31, 0.35), 0 0 0 1px var(--needs-me-core); }
+.lbl.is-sel.is-needs { box-shadow: inset 0 0 0 1px rgba(91, 60, 255, 0.45), 0 0 0 1px var(--needs-me-core); }
 
 /* ---------------------------------------------------------------- popups */
 
@@ -280,3 +280,7 @@ mark.lens-mark { box-shadow: inset 0 -1px 0 currentColor; }
   .lbl--sys.is-needs::after { animation: none; opacity: 0.85; }
   .lens-diag { transform: none; }
 }
+
+/* Name tag (owner, 2026-11-02): the hover popup is just the name; details are in the Selected panel. */
+.lens-pop { padding: 3px 9px; border-radius: 999px; font-size: var(--fs-sm); }
+.lens-pop__head { margin-bottom: 0; }

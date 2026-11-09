@@ -44,6 +44,8 @@ export class CameraController {
     this.domElement = domElement;
     this.minDist = opts.minDist ?? 3;
     this.maxDist = opts.maxDist ?? 4000;
+    // false for secondary views (the picture-in-picture window): no fly keys.
+    this._keyboard = opts.keyboard !== false;
     this.autoOrbit = true;
 
     /** Current orbit target (read by others; write through flyTo or input). */
@@ -360,8 +362,10 @@ export class CameraController {
     el.addEventListener('pointercancel', this._onPointerUp);
     el.addEventListener('wheel', this._onWheel, { passive: false });
     el.addEventListener('contextmenu', this._onContextMenu);
-    window.addEventListener('keydown', this._onKeyDown);
-    window.addEventListener('keyup', this._onKeyUp);
+    if (this._keyboard) {
+      window.addEventListener('keydown', this._onKeyDown);
+      window.addEventListener('keyup', this._onKeyUp);
+    }
     window.addEventListener('blur', this._onBlur);
   }
 

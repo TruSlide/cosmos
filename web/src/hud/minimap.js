@@ -2,7 +2,7 @@
 //
 // Draws from galaxy.minimap(): arms (cached to an offscreen canvas), every
 // system as a dot shaped by its state, the camera's view, the selection, and
-// every NEEDS ME session as a pulsing hourglass in the reserved orange (the
+// every NEEDS ME session as a pulsing hourglass in the reserved indigo (the
 // hourglass shape and the pulse carry it without color). Click a dot to fly
 // there; click near an arm to frame that arm.
 //

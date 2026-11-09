@@ -26,12 +26,14 @@ function aces([r, g, b]) {
 const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const n = color('NEEDS_ME');
 const hN = (linearToOklch(n.r, n.g, n.b)[2] * Math.PI) / 180;
+const cr = color('CRASHED');
+const hC = (linearToOklch(cr.r, cr.g, cr.b)[2] * Math.PI) / 180;
 const rad = (d) => (d * Math.PI) / 180;
 function cosmosToneMap(c) {
   const a = aces(c);
   const [L, C, hDeg] = linearToOklch(...c);
   if (L <= 1e-5 || C <= 1e-6) return a;
-  const cosd = Math.cos(rad(hDeg) - hN);
+  const cosd = Math.max(Math.cos(rad(hDeg) - hN), Math.cos(rad(hDeg) - hC));
   const w = sstep(Math.cos(rad(22)), Math.cos(rad(15)), cosd) * sstep(0.08, 0.16, C / L);
   if (w <= 0) return a;
   const m = Math.max(...c);
@@ -42,17 +44,26 @@ function cosmosToneMap(c) {
 const luma = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 const at = (c, L) => [c.r, c.g, c.b].map((v) => (v * L) / luma(c));
 
-test('NEEDS_ME stays electric orange after tone mapping, at any brightness', () => {
+test('NEEDS_ME keeps its own hue after tone mapping, at any brightness', () => {
   for (const L of [0.1, 0.3, 0.6, 1, 2, 4, 8, 16]) {
     const [, C, h] = linearToOklch(...cosmosToneMap(at(n, L)));
-    assert.ok(h >= 35 && h <= 45, `luminance ${L}: hue ${h.toFixed(1)}°`);
-    assert.ok(C >= 0.15, `luminance ${L}: chroma ${C.toFixed(3)}`);
+    // Within 5° of NEEDS_ME's own hue, and still clearly saturated (dimmest ember included).
+    assert.ok(Math.abs(h - (hN * 180) / Math.PI) <= 5, `luminance ${L}: hue ${h.toFixed(1)}°`);
+    assert.ok(C >= 0.14, `luminance ${L}: chroma ${C.toFixed(3)}`);
   }
 });
 
-test('plain ACES alone would have failed (documents the blocker)', () => {
-  const [, , h] = linearToOklch(...aces(at(n, 1)));
-  assert.ok(h > 45, `ACES hue at luminance 1 is ${h.toFixed(1)}°`);
+test('plain ACES alone would have failed (documents the blocker, crashed orange)', () => {
+  const [, , h] = linearToOklch(...aces(at(cr, 1)));
+  assert.ok(h > 50, `ACES hue at luminance 1 is ${h.toFixed(1)}°`);
+});
+
+test('CRASHED keeps its own hue after tone mapping, at any brightness', () => {
+  for (const L of [0.1, 0.3, 0.6, 1, 2, 4, 8, 16]) {
+    const [, C, h] = linearToOklch(...cosmosToneMap(at(cr, L)));
+    assert.ok(Math.abs(h - (hC * 180) / Math.PI) <= 5, `luminance ${L}: hue ${h.toFixed(1)}°`);
+    assert.ok(C >= 0.14, `luminance ${L}: chroma ${C.toFixed(3)}`);
+  }
 });
 
 test('colors outside the band keep plain ACES', () => {

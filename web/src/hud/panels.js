@@ -20,7 +20,7 @@
 // No module-level mutable state: everything lives in the factory closures.
 
 import { FEED_TYPES, DIAG_TYPES } from '../shared/schema.mjs';
-import { humanTool } from './hover.js';
+import { humanTool, describe } from './hover.js';
 
 // ------------------------------------------------------------------ DOM helpers
 
@@ -174,6 +174,10 @@ export const GLYPH = Object.freeze({
   answered: SVG('<path d="M3 7.4l2.6 2.6L11 4.4" fill="none" stroke="currentColor" stroke-width="1.5"/>'),
   arm: SVG('<path d="M7 7c0-1.5 1.6-2.2 2.8-1.2 1.6 1.4.8 4.3-1.6 4.9C5 11.5 2.4 8.8 3 5.6 3.7 2.2 7.7.8 10.8 2.4" fill="none" stroke="currentColor" stroke-width="1.2"/>'),
   galaxy: SVG('<ellipse cx="7" cy="7" rx="6.2" ry="2.6" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="7" cy="7" r="1.8" fill="currentColor"/>'),
+  // tree with roots: the Tree of Knowledge
+  codex: SVG('<path d="M7 1.2C4.4 1.2 2.6 3 2.6 5c0 1.6 1.2 2.8 2.8 3H6.4v1.2L4.2 12.6M7 9.2v3.6M7.6 9.2l2.2 3.4M8.6 8h1c1.6-.2 2.8-1.4 2.8-3 0-2-1.8-3.8-4.4-3.8" fill="none" stroke="currentColor" stroke-width="1.2"/>'),
+  // four-pointed star: me
+  me: SVG('<path d="M7 1.2l1.1 4.7L12.8 7 8.1 8.1 7 12.8 5.9 8.1 1.2 7l4.7-1.1z" fill="currentColor"/>'),
   folder: SVG('<circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="7" cy="7" r="1.8" fill="currentColor"/>'),
   cluster: SVG('<circle cx="4" cy="5" r="1.8" fill="currentColor"/><circle cx="10" cy="4.5" r="1.5" fill="currentColor"/><circle cx="7.5" cy="10" r="1.7" fill="currentColor"/>'),
 });
@@ -212,6 +216,102 @@ export function glyphEl(key, cls = '') {
 }
 function setGlyph(el, key) {
   if (el.dataset.g !== key) { el.dataset.g = key; el.innerHTML = GLYPH[key] || GLYPH.idle; }
+}
+
+/**
+ * Crashed block (owner, 2026-11-08): crashed sessions from the last day, above
+ * the needs-me list, in CRASHED orange. Fly there, or Dismiss (quiets it on
+ * this device; it then shows as an ordinary wreck).
+ */
+function createCrashBlock(store, flyTo) {
+  const wrap = h('div.hud-crash');
+  let sig = '';
+  function render() {
+    const list = store.crashAlarms ? store.crashAlarms() : [];
+    const now = store.now();
+    const next = list.map((r) => r.id + ':' + Math.floor((now - (r.state.since ?? now)) / 60)).join('|');
+    if (next === sig) return;
+    sig = next;
+    const frag = document.createDocumentFragment();
+    for (const r of list) {
+      const row = h('div.hud-crash__row');
+      const go = () => flyTo({ kind: 'session', sid: r.id });
+      const dismiss = h('button.hud-btn', { type: 'button', text: 'Dismiss', title: 'Quiet this alarm (it stays a wreck in the galaxy)' });
+      dismiss.addEventListener('click', (e) => { e.stopPropagation(); store.dismissCrash(r.id); render(); });
+      const fly = h('button.hud-btn.hud-btn--crash', { type: 'button', text: 'Fly' });
+      fly.addEventListener('click', (e) => { e.stopPropagation(); go(); });
+      row.append(
+        h('span.hud-crash__glyph', { text: '✸', 'aria-hidden': 'true' }),
+        h('span.hud-crash__main', null,
+          h('span.hud-crash__title', { text: r.title || r.id.slice(0, 8) }),
+          h('span.hud-crash__sub', { text: `CRASHED · ${fmtDur(now - (r.state.since ?? now))} ago${r.arm?.name ? ` · ${r.arm.name}` : ''}` })),
+        fly, dismiss);
+      row.addEventListener('click', go);
+      frag.append(row);
+    }
+    wrap.replaceChildren(frag);
+    wrap.hidden = list.length === 0;
+  }
+  store.on('session', render);
+  store.on('sessions', render);
+  store.on('crash-dismissed', render);
+  setInterval(render, 15000);
+  render();
+  return wrap;
+}
+
+/**
+ * Parking Lot section (owner, 2026-11-08): the same list /pending shows, read
+ * from GET /api/pending (PENDING.md, the ideas waiting room, discovery "Not
+ * now" finds). Read-only here: tick items off in /pending. Items that point at
+ * a session get an Open button; the rest show where they live.
+ */
+function createParkingLot(store) {
+  const wrap = h('details.hud-park');   // starts folded: one line until opened
+  const sum = h('summary.hud-park__head', { text: 'Parking Lot' });
+  const count = h('span.hud-park__count');
+  sum.append(count);
+  const body = h('div.hud-park__body');
+  wrap.append(sum, body);
+  let timer = 0;
+  async function load() {
+    clearTimeout(timer);
+    timer = setTimeout(load, 60000);
+    let d = null;
+    try { const r = await fetch('/api/pending', { cache: 'no-store' }); if (r.ok) d = await r.json(); } catch { d = null; }
+    if (!d) return;
+    const frag = document.createDocumentFragment();
+    let n = 0;
+    for (const g of d.groups || []) {
+      if (!g.items?.length) continue;
+      frag.append(h('div.hud-park__group', { text: `${g.name} (${g.items.length})` }));
+      for (const it of g.items.slice(0, 8)) {
+        n++;
+        const row = h('div.hud-park__item');
+        row.append(h('span.hud-park__text', { text: it.text, title: it.target || it.source }), h('span.hud-park__age', { text: it.age || '' }));
+        if (/^local_[A-Za-z0-9-]{8,64}$/.test(it.target || '')) {
+          const go = h('button.hud-btn', { type: 'button', text: 'Open', title: 'Open this session in the Claude app' });
+          go.addEventListener('click', () => openInApp({ appSession: it.target }));
+          row.append(go);
+        }
+        frag.append(row);
+      }
+    }
+    if (!n) frag.append(h('div.hud-park__empty', { text: (d.problems || []).join(' ') || 'Nothing parked.' }));
+    body.replaceChildren(frag);
+    count.textContent = n ? ` ${n}` : '';
+    void store;
+  }
+  load();
+  return wrap;
+}
+
+/** Open a session in the Claude desktop app (its app id comes from the live registry). */
+export function openInApp(rec) {
+  const id = rec?.appSession;
+  if (!id || !/^local_[A-Za-z0-9-]{8,64}$/.test(id)) return false;
+  window.location.href = `claude://claude.ai/epitaxy/${id}`;
+  return true;
 }
 
 /** One line: what the session is doing right now, from structured fields only. */
@@ -328,13 +428,14 @@ export const PANEL_NAMES = Object.freeze(['needs', 'live', 'feed', 'selected', '
 const PANEL_DEFS = Object.freeze({
   needs:    { id: 'panel-needs',    title: 'Needs me',   key: '1', dock: 'left',  order: 0 },
   live:     { id: 'panel-live',     title: 'Sessions',   key: '2', dock: 'left',  order: 1 },
-  feed:     { id: 'panel-feed',     title: 'Activity',   key: '3', dock: 'right', order: 1 },
+  feed:     { id: 'panel-feed',     title: 'Activity',   key: '3', dock: 'right', order: 1, collapsed: true },
   selected: { id: 'panel-selected', title: 'Selected',   key: '4', dock: 'right', order: 0 },
   totals:   { id: 'panel-totals',   title: 'Totals',     key: '5', dock: 'left',  order: 2 },
   minimap:  { id: 'minimap',        title: 'Galaxy map', key: '6', dock: 'right', order: 2 },
 });
 
-const PREF_KEY = 'cosmos.hud.v1';
+// v2 (2026-11-08): a calmer start: the PiP docks top right, Activity starts collapsed.
+const PREF_KEY = 'cosmos.hud.v2';
 const EDGE_SNAP = 28;      // px: floating panels closer than this to an edge snap flush
 const DOCK_ZONE = 80;      // px: drop within this of a side to dock into its column
 const MARGIN = 12;
@@ -402,7 +503,7 @@ export function createPanels(rootEl, { store, galaxy = null, engine = null, diag
     el.append(header, body);
     el.classList.add('hud-panel', `hud-panel--${name}`);
     el.setAttribute('aria-label', def.title);
-    const pp = Object.assign({ dock: def.dock, order: def.order, collapsed: false, hidden: false }, prefs.panels[name] || {});
+    const pp = Object.assign({ dock: def.dock, order: def.order, collapsed: !!def.collapsed, hidden: false }, prefs.panels[name] || {});
     prefs.panels[name] = pp;
     P[name] = { name, def, el, header, body, countEl, titleEl, collapseBtn, hideBtn, pref: pp };
 
@@ -575,7 +676,7 @@ export function createPanels(rootEl, { store, galaxy = null, engine = null, diag
   function resetLayout() {
     for (const name of PANEL_NAMES) {
       const d = PANEL_DEFS[name];
-      Object.assign(P[name].pref, { dock: d.dock, order: d.order, collapsed: false, hidden: false, ax: undefined, ay: undefined, dx: undefined, dy: undefined });
+      Object.assign(P[name].pref, { dock: d.dock, order: d.order, collapsed: !!d.collapsed, hidden: false, ax: undefined, ay: undefined, dx: undefined, dy: undefined });
     }
     allHidden = false;
     layout(); persist(); emit(); schedule();
@@ -595,7 +696,11 @@ export function createPanels(rootEl, { store, galaxy = null, engine = null, diag
     const p = P.needs;
     const list = h('ol.hud-list.hud-needs', { 'aria-live': 'polite' });
     const empty = h('div.hud-empty', null, glyphEl('my-move'), h('span', { text: 'Nothing is waiting on you.' }));
+    // Crashed first: louder than needs-me (owner, 2026-11-08).
+    p.body.append(createCrashBlock(store, flyTo));
     p.body.append(list, empty);
+    // Parking Lot (same list as /pending): everything else waiting on the owner.
+    p.body.append(createParkingLot(store));
     const keyed = createKeyedList(list, (rec, sid) => {
       const glyph = glyphEl('needs-me', 'is-needs');
       const sub = h('span.hud-needs__sub');
@@ -605,21 +710,25 @@ export function createPanels(rootEl, { store, galaxy = null, engine = null, diag
       const wait = h('span.hud-needs__wait', { title: 'How long it has waited' });
       const flag = h('span.hud-tag');
       const jump = h('button.hud-btn.hud-btn--needs', { type: 'button', text: 'Jump', 'aria-label': 'Fly to this session' });
+      // Open the real session in the Claude desktop app (scheduled runs are easy to miss there).
+      const open = h('button.hud-btn.hud-btn--needs', { type: 'button', text: 'Open', title: 'Open this session in the Claude app', 'aria-label': 'Open this session in the Claude app' });
+      open.addEventListener('click', (e) => { e.stopPropagation(); openInApp(store.get(sid)); });
       const row = h('li.hud-row.hud-row--needs', { tabindex: '0', dataset: { sid } },
         glyph,
         h('div.hud-row__main', null, h('div.hud-row__line', null, title), h('div.hud-row__line', null, h('span.hud-needs__kind', null, subGlyph, sub), proj, flag)),
-        h('div.hud-row__side', null, wait, jump));
+        h('div.hud-row__side', null, wait, jump, open));
       const go = () => flyTo({ kind: 'session', sid });
       row.addEventListener('click', go);
       row.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
       row.addEventListener('mouseenter', () => store.hover?.({ kind: 'session', sid }));
       row.addEventListener('mouseleave', () => store.hover?.(null));
-      row._r = { title, proj, sub, subGlyph, wait, flag };
+      row._r = { title, proj, sub, subGlyph, wait, flag, open };
       return row;
     }, (row, rec) => {
       const r = row._r;
       setText(r.title, rec.title || rec.id.slice(0, 8));
       setText(r.proj, rec.arm?.name || '');
+      r.open.hidden = !rec.appSession;
       const sub = rec.state.sub;
       setText(r.sub, SUB_WORD[sub] || 'INPUT');
       setGlyph(r.subGlyph, GLYPH[sub] ? sub : 'question');
@@ -652,7 +761,8 @@ export function createPanels(rootEl, { store, galaxy = null, engine = null, diag
       b.addEventListener('click', () => { prefs.liveFilter = val; for (const c of chips.children) c.setAttribute('aria-pressed', String(c.dataset.v === val)); persist(); this_.render(); });
       return b;
     };
-    chips.append(mk('active', 'Active', 'Needs me, working, your move, idle, and crashes from the last day'), mk('live', 'Open', 'Only sessions whose Claude Code window is open and awake'), mk('all', 'All', 'Including dead, closed and deleted sessions'));
+    chips.append(mk('active', 'Active', 'Needs me, working, your move, idle, and crashes from the last day'), mk('live', 'Open', 'Only sessions whose Claude Code window is open and awake'),
+      mk('idle', 'Idle', 'Quiet sessions in their idle day (dying)'), mk('dead', 'Dead', 'Sessions whose idle day ran out, plus closed and deleted ones'), mk('all', 'All', 'Every session'));
     const list = h('ol.hud-list.hud-live');
     const more = h('div.hud-more');
     p.body.append(chips, list, more);
@@ -716,6 +826,8 @@ export function createPanels(rootEl, { store, galaxy = null, engine = null, diag
           if (f === 'active' && m === 'dead') continue;
           if (f === 'active' && m === 'crashed' && nowS() - (rec.times?.lastActivity ?? 0) > CRASH_ACTIVE_S) continue;
           if (f === 'live' && !isOpenSession(rec)) continue;
+          if (f === 'idle' && m !== 'idle') continue;
+          if (f === 'dead' && m !== 'dead') continue;
           total++;
           if (recs.length < LIVE_MAX) recs.push(rec);
         }
@@ -844,7 +956,10 @@ export function createPanels(rootEl, { store, galaxy = null, engine = null, diag
     head.append(headGlyph, h('div', null, headTitle, headSub));
     const grid = h('dl.hud-kv');
     const actions = h('div.hud-sel__actions');
-    p.body.append(head, grid, actions);
+    // Plain-words explanation (what it is, what it means, how to spot it): moved here
+    // from the hover popup, which is now just a name tag.
+    const about = h('div.hud-sel__about');
+    p.body.append(head, about, grid, actions);
     let fullCache = null;     // { sid, rec } last fetched full record (for files/ships beyond the lite top 24)
     let pending = null;
 
@@ -907,6 +1022,29 @@ export function createPanels(rootEl, { store, galaxy = null, engine = null, diag
     }
 
     function render() {
+      renderBody();
+      renderAbout();
+    }
+    function renderAbout() {
+      const s = sel();
+      let d = null;
+      try { d = describe(s || { kind: 'galaxy' }, store, { full: fullCache && s?.sid === fullCache.sid ? fullCache.rec : null }); } catch { d = null; }
+      if (!d) { about.replaceChildren(); return; }
+      const frag = doc.createDocumentFragment();
+      if (d.what) frag.append(h('p.hud-sel__what', { text: d.what }));
+      if (d.means) frag.append(h('p.hud-sel__means', { text: d.means }));
+      // Hover rows the panel's own fields don't already show.
+      const have = new Set([...grid.querySelectorAll('dt')].map((x) => x.textContent.trim().toLowerCase()));
+      const extra = (d.rows || []).filter(([k]) => !have.has(String(k).trim().toLowerCase()));
+      if (extra.length) {
+        const dl = h('dl.hud-kv.hud-kv--extra');
+        for (const [k, v, cls] of extra) dl.append(h('dt', { text: String(k).trim() }), h('dd', { text: v == null ? '—' : String(v), class: (cls || '').includes('needs') ? 'is-needs-text' : undefined }));
+        frag.append(dl);
+      }
+      if (d.spot) frag.append(h('p.hud-sel__spot', null, h('b', { text: 'Spot it yourself: ' }), d.spot));
+      about.replaceChildren(frag);
+    }
+    function renderBody() {
       const s = sel();
       const now = nowS();
       actions.replaceChildren();
@@ -922,7 +1060,81 @@ export function createPanels(rootEl, { store, galaxy = null, engine = null, diag
           ['Tokens today', fmtTokens(T.tokensToday?.total)],
           ['Hint', 'Click any star, or press / to search.'],
         ]);
+        // Obituary: sessions whose idle day ran out today (they died), newest first.
+        const day0 = new Date(now * 1000); day0.setHours(0, 0, 0, 0);
+        const midnight = day0.getTime() / 1000;
+        const died = [];
+        for (const r of store.sessions?.values?.() || []) {
+          if (store.fateOf?.(r, now)?.fate !== 'dying') continue;
+          const la = r.times?.lastActivity;
+          if (typeof la !== 'number') continue;
+          const at = la + 86400;
+          if (at >= midnight && at <= now) died.push([r, at, la]);
+        }
+        died.sort((a, b) => b[1] - a[1]);
+        if (died.length) {
+          actions.append(h('div.hud-codex__head', { text: `Died today (${died.length})` }));
+          const ul = h('ul.hud-codex');
+          for (const [r, at, la] of died.slice(0, 8)) {
+            const li = h('li.hud-codex__item.is-click', { title: 'Fly to its wreck' });
+            li.append(
+              h('span.hud-codex__kind.is-dim', { text: new Date(at * 1000).toTimeString().slice(0, 5) }),
+              h('span.hud-codex__name', { text: `${r.title || r.id.slice(0, 8)}${r.arm?.name ? ` · ${r.arm.name}` : ''}` }),
+              h('span.hud-codex__desc', { text: `last active ${new Date(la * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · ${fmtTokens(r.tokens?.total)} tokens` }),
+            );
+            li.addEventListener('click', () => store.select({ kind: 'session', sid: r.id }, { fly: true }));
+            ul.append(li);
+          }
+          actions.append(ul);
+        }
         setText(p.countEl, '');
+        return;
+      }
+      if (s.kind === 'codex') {
+        const K = store.knowledge?.data;
+        const c = K?.counts || {};
+        const items = K?.items || [];
+        setGlyph(headGlyph, 'codex');
+        setText(headTitle, 'The Tree of Knowledge');
+        const T0 = store.totals || {}; const bm0 = T0.byMode || {};
+        const aliveN = (bm0.working || 0) + (bm0['needs-me'] || 0) + (bm0['my-move'] || 0);
+        setText(headSub, `${fmtInt(aliveN)} living branches · ${fmtInt((T0.sessions || 0) - aliveN)} roots · ${fmtInt(items.length)} leaves`);
+        const KIND = { memory: 'Memory', skill: 'Skill', rules: 'Project rules', decisions: 'Decision log', kit: 'Kit' };
+        const recent = items.slice(0, 6).map((it) => {
+          const li = h('li.hud-codex__item');
+          li.append(
+            h('span.hud-codex__kind', { text: KIND[it.kind] || it.kind }),
+            h('span.hud-codex__name', { text: it.name + (it.projectName ? ` · ${it.projectName}` : ''), title: it.path }),
+            h('span.hud-codex__desc', { text: it.description || '' }),
+          );
+          return li;
+        });
+        kv([
+          ['Memories', fmtInt(c.memory)],
+          ['Skills', fmtInt(c.skill)],
+          ['Project rules', fmtInt(c.rules)],
+          ['Decision logs', fmtInt(c.decisions)],
+          ['Kit (mods, apps, connectors…)', fmtInt(c.kit)],
+          ['Newest', items[0] ? `${items[0].name} · ${fmtAge(Date.now() / 1000 - items[0].mtime)} ago` : '—'],
+          ['How it grows', 'A new leaf grows each time a session saves a memory, skill, rule, decision or kit item.'],
+        ]);
+        if (recent.length) actions.append(h('div.hud-codex__head', { text: 'Recently added or changed' }), h('ul.hud-codex', null, ...recent));
+        setText(p.countEl, 'codex');
+        return;
+      }
+      if (s.kind === 'me') {
+        const waitingIds = [...(store.sessions?.values?.() || [])].filter((r) => r.state?.mode === 'needs-me');
+        const mine = [...(store.sessions?.values?.() || [])].filter((r) => r.state?.mode === 'my-move' && r.live);
+        setGlyph(headGlyph, 'me');
+        setText(headTitle, 'You');
+        setText(headSub, 'The owner of this galaxy');
+        kv([
+          ['Need you now', fmtInt(waitingIds.length), waitingIds.length ? { cls: 'is-needs-text' } : undefined],
+          ['Your move', fmtInt(mine.length)],
+          ['Threads', 'One line of light runs from you to each session that needs you.'],
+        ]);
+        for (const r of waitingIds.slice(0, 6)) actions.append(btn(r.title || r.id.slice(0, 8), () => store.select({ kind: 'session', sid: r.id }, { fly: true })));
+        setText(p.countEl, 'me');
         return;
       }
       if (s.kind === 'arm') {
@@ -962,6 +1174,26 @@ export function createPanels(rootEl, { store, galaxy = null, engine = null, diag
         setText(headSub, `Star system · ${MODE_WORD[lite.state.mode] || lite.state.mode}`);
         kv(sessionRows(lite, now));
         actions.append(btn('Fly here', () => flyTo(s)));
+        if (lite.appSession) actions.append(btn('Open in Claude', () => openInApp(lite)));
+        // Shared files: other sessions that edited the same files (collision = both live, both recent).
+        const links = galaxy?.constellations?.linksOf?.(lite.id) || [];
+        if (links.length) {
+          actions.append(h('div.hud-codex__head', { text: `Shares files with (${links.length})` }));
+          const ul = h('ul.hud-codex');
+          for (const l of links.slice(0, 6)) {
+            const other = store.get(l.a === lite.id ? l.b : l.a);
+            if (!other) continue;
+            const li = h('li.hud-codex__item.is-click', { title: 'Fly there' });
+            li.append(
+              h('span.hud-codex__kind' + (l.collide ? '.is-warn' : '.is-dim'), { text: l.collide ? 'Overlap!' : `${l.shared} file${l.shared === 1 ? '' : 's'}` }),
+              h('span.hud-codex__name', { text: other.title || other.id.slice(0, 8) }),
+              h('span.hud-codex__desc', { text: (l.collide ? 'Both are live and edited the same file in the last 30 min, so one may overwrite the other: ' : '') + l.files.join(', ') }),
+            );
+            li.addEventListener('click', () => flyTo({ kind: 'session', sid: other.id }));
+            ul.append(li);
+          }
+          actions.append(ul);
+        }
         setText(p.countEl, '');
         return;
       }
@@ -1056,6 +1288,41 @@ export function createPanels(rootEl, { store, galaxy = null, engine = null, diag
       const cell = h('div.hud-totals__state', { dataset: { mode: m }, title: MODE_WORD[m] }, glyphEl(stateGlyphKey({ state: { mode: m } })), n, h('span.hud-totals__w', { text: MODE_WORD[m] }));
       cells[m] = n;
       states.append(cell);
+      // Hover a tile (not Dead): list its sessions beside the panel (owner, 2026-11-08).
+      if (m !== 'dead') {
+        cell.addEventListener('mouseenter', () => showList(m, cell));
+        cell.addEventListener('mouseleave', () => hideSoon());
+      }
+    }
+    const pop = h('div.hud-totals-pop', { role: 'dialog', 'aria-label': 'Sessions in this state' });
+    pop.hidden = true;
+    doc.body.append(pop);
+    let hideT = 0;
+    pop.addEventListener('mouseenter', () => clearTimeout(hideT));
+    pop.addEventListener('mouseleave', () => hideSoon());
+    function hideSoon() { clearTimeout(hideT); hideT = setTimeout(() => { pop.hidden = true; }, 220); }
+    function showList(m, cell) {
+      clearTimeout(hideT);
+      const now = nowS();
+      const recs = [...(store.sessions?.values?.() || [])].filter((r) => r.state?.mode === m)
+        .sort((a, b) => (b.times?.lastActivity ?? 0) - (a.times?.lastActivity ?? 0));
+      const frag = doc.createDocumentFragment();
+      frag.append(h('div.hud-totals-pop__head', { text: `${MODE_WORD[m]} (${recs.length})` }));
+      if (!recs.length) frag.append(h('div.hud-totals-pop__empty', { text: 'None right now.' }));
+      for (const r of recs.slice(0, 30)) {
+        const row = h('button.hud-totals-pop__row', { type: 'button', title: 'Fly there' });
+        row.append(h('span.hud-totals-pop__t', { text: r.title || r.id.slice(0, 8) }), h('span.hud-totals-pop__s', { text: `${r.arm?.name || ''}${r.arm?.name ? ' · ' : ''}${currentAction(r, now)}` }));
+        row.addEventListener('click', () => { pop.hidden = true; flyTo({ kind: 'session', sid: r.id }); });
+        frag.append(row);
+      }
+      if (recs.length > 30) frag.append(h('div.hud-totals-pop__empty', { text: `+${recs.length - 30} more (Sessions panel, All)` }));
+      pop.replaceChildren(frag);
+      const rc = cell.getBoundingClientRect();
+      const pr = p.el.getBoundingClientRect();
+      pop.hidden = false;
+      const left = pr.right + 8 + 280 < window.innerWidth ? pr.right + 8 : Math.max(8, pr.left - 288);
+      pop.style.left = `${Math.round(left)}px`;
+      pop.style.top = `${Math.round(Math.max(52, Math.min(rc.top - 8, window.innerHeight - pop.offsetHeight - 12)))}px`;
     }
     const big = h('div.hud-totals__big');
     const tokN = h('span.hud-num.hud-totals__tok');

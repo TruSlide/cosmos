@@ -106,7 +106,7 @@ test('layout: provisional places, commit in birth order, stable across restarts'
   await s2.flush();
 });
 
-test('explain usage running total and launch-config', async () => {
+test('explain usage running total', async () => {
   const dir = tmpDir();
   const s = createStore({ cacheDir: dir, claudeHome: dir });
   s.addExplainUsage({ t: T0, eventId: 'error:S:x', model: 'claude-haiku', usage: { input: 10, output: 20, cacheRead: 100, cacheCreate: 5, total: 35 } });
@@ -117,8 +117,6 @@ test('explain usage running total and launch-config', async () => {
   await s.flush();
   const s2 = createStore({ cacheDir: dir, claudeHome: dir });
   assert.equal(s2.explainUsage().tokens.cacheRead, 100);
-  await s.writeLaunchConfig({ enabled: false, entrypoints: ['cli'] });
-  assert.equal(fs.readFileSync(path.join(dir, 'launch-config'), 'utf8'), 'enabled=0\nentrypoints=cli\n');
 });
 
 test('history folds the log into base and returns the range', async () => {

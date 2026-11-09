@@ -24,7 +24,7 @@ export const GLOSSARY = Object.freeze({
     galaxy: {
       name: 'The galaxy',
       what: 'Every Claude Code session on this Mac, in one place.',
-      means: 'Each star system is one session. Each spiral arm is one project folder. The brightest orange objects need you.',
+      means: 'Each star system is one session. Each spiral arm is one project folder. Indigo hourglasses need you; flashing orange bursts are fresh crashes.',
       spot: 'Press N to jump to the next session that is waiting on you.',
     },
     core: {
@@ -32,6 +32,18 @@ export const GLOSSARY = Object.freeze({
       what: 'A fixed landmark at the center.',
       means: 'It is not a session. It is there so you always know where the middle is.',
       spot: 'Press R to fly back to the whole-galaxy view.',
+    },
+    codex: {
+      name: 'The Tree of Knowledge',
+      what: 'The tree at the center of the galaxy. As above, so below.',
+      means: 'Its branches above are your living sessions; its roots below are the dormant and finished ones. Its glimmering leaves are everything your sessions have learned and saved: memories, skills, project rules, decision logs and your kit.',
+      spot: 'When a session saves something new, a gold beam flies from it into the canopy and a new leaf grows where it lands. Light rises through the bark toward the living branches.',
+    },
+    me: {
+      name: 'You',
+      what: 'The pearl star orbiting the Codex: you, the owner of this galaxy.',
+      means: 'A thread of light runs from you to every session that needs you right now. You shine brighter the more sessions are waiting.',
+      spot: 'Click to see who is waiting and jump to them.',
     },
     arm: {
       name: 'Spiral arm',
@@ -395,6 +407,17 @@ export function describe(sel, store, extra) {
       };
     }
     case 'core': return { kind: 'core', title: O.core.name, glyph: '\u2735', what: O.core.what, means: O.core.means, spot: O.core.spot, rows: [] };
+    case 'codex': {
+      const K = store.knowledge?.data;
+      const c = K?.counts || {};
+      return { kind: 'codex', title: O.codex.name, glyph: '\u2698', what: O.codex.what, means: O.codex.means, spot: O.codex.spot,
+        rows: [['Leaves', fmt.int(K?.items?.length)], ['Memories', fmt.int(c.memory)], ['Skills', fmt.int(c.skill)], ['Rules · decisions', fmt.int(c.rules) + ' · ' + fmt.int(c.decisions)]] };
+    }
+    case 'me': {
+      const bm = (store.totals || {}).byMode || {};
+      return { kind: 'me', title: O.me.name, glyph: '\u2726', what: O.me.what, means: O.me.means, spot: O.me.spot,
+        rows: [['Need you now', fmt.int(bm['needs-me']), bm['needs-me'] ? 'needs num' : 'num'], ['Your move', fmt.int(bm['my-move']), 'num']] };
+    }
     case 'arm': {
       const arm = store.arms && store.arms.get(sel.armKey);
       if (!arm) return null;
@@ -508,6 +531,8 @@ export function anchorKeyOf(sel) {
     case 'ship': return 'ship:' + sel.sid + ':' + sel.id;
     case 'compaction': return 'bh:' + sel.sid + ':' + sel.id;
     case 'core': return 'core';
+    case 'codex': return 'codex';
+    case 'me': return 'me';
     default: return '';
   }
 }
@@ -560,21 +585,11 @@ export function createPopups(rootEl, { galaxy, store }) {
     visible = false; box.hidden = true; box.classList.remove('is-on');
   }
 
-  function anchorFor(sel) {
-    const key = anchorKeyOf(sel);
-    if (!key || !galaxy || typeof galaxy.anchors !== 'function') return null;
-    const list = galaxy.anchors();
-    for (let i = 0; i < list.length; i++) if (list[i].key === key) return list[i].onScreen ? list[i] : null;
-    return null;
-  }
-
   function place() {
     const W = window.innerWidth, H = window.innerHeight;
     const bw = box.offsetWidth, bh = box.offsetHeight;
-    const a = cur && anchorFor(cur);
-    // Object center and radius; fall back to the cursor.
-    let ox = mx, oy = my, r = 10;
-    if (a) { ox = a.x; oy = a.y; r = Math.max(10, a.size || 0); }
+    // Pinned to the cursor (an orbiting object is hard to follow with your eyes).
+    const ox = mx, oy = my, r = 6;
     // Prefer the side of the object facing the cursor, else right; never overlap the object's disc.
     let dx = mx - ox, dy = my - oy;
     const d = Math.hypot(dx, dy);
@@ -613,25 +628,9 @@ export function createPopups(rootEl, { galaxy, store }) {
     const head = el('div', 'lens-pop__head');
     head.append(el('span', 'lens-pop__glyph', d.glyph || ''), el('span', 'lens-pop__title', d.title));
     const kindName = (GLOSSARY.objects[d.kind] || {}).name;
-    if (kindName && d.kind !== 'galaxy' && d.kind !== 'core') head.append(el('span', 'lens-pop__kind', kindName));
+    if (kindName && d.kind !== 'galaxy' && d.kind !== 'core' && d.kind !== 'codex' && d.kind !== 'me') head.append(el('span', 'lens-pop__kind', kindName));
+    // Name only (owner, 2026-11-02): the full explanation lives in the Selected panel. Click to open it.
     box.append(head);
-    if (d.what) box.append(el('p', 'lens-pop__what', d.what));
-    if (d.means) box.append(el('p', 'lens-pop__means', d.means));
-    if (d.rows && d.rows.length) {
-      const dl = el('dl', 'lens-pop__rows');
-      for (const [k, v, cls] of d.rows) {
-        const dt = el('dt', cls && cls.includes('sub') ? 'is-sub' : '', k.trim());
-        const dd = el('dd', cls || '', v);
-        dl.append(dt, dd);
-      }
-      box.append(dl);
-    }
-    if (d.spot) {
-      const p = el('p', 'lens-pop__spot');
-      p.append(el('b', '', 'Spot it yourself: '), document.createTextNode(d.spot));
-      box.append(p);
-    }
-    if (d.clickHint) box.append(el('p', 'lens-pop__hint', d.clickHint));
     box.hidden = false;
     visible = true;
     place();
@@ -646,7 +645,6 @@ export function createPopups(rootEl, { galaxy, store }) {
     if (!full || full.id !== cur.sid) full = null;
     timer = setTimeout(() => {
       timer = 0; render();
-      if (visible) tick = setInterval(render, 1000);   // wait / age clocks tick
     }, SHOW_DELAY_MS);
   });
   const offSel = store.on('selection', () => hide());

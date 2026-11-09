@@ -17,7 +17,6 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CameraController } from './camera.js';
@@ -55,7 +54,7 @@ const DUST_PEAK_LUMA = 0.05;         // ART_DIRECTION §6: dust stays ~0.05
 // ------------------------------------------------------------ NEEDS ME tone map
 //
 // Per-channel ACES pushes a bright saturated orange toward amber and then
-// cream (#FF5F1F at luminance 1 comes out #FFC975), so the quasar would lose
+// cream (#FF6A00 at luminance 1 comes out #FFC975), so the quasar would lose
 // its reserved color exactly where it is brightest. For pixels whose OKLab hue
 // sits in the NEEDS ME band, the output pass instead tone-maps the max channel
 // with the same ACES curve and scales rgb by it: hue and saturation survive,
@@ -67,9 +66,10 @@ const HUE_NONE_DEG = 22;
 
 /** Patch OutputPass's ACES call with the hue-preserving blend above. */
 function installHuePreservingToneMap(outputPass) {
-  const c = color('NEEDS_ME');
-  const [, , hDeg] = linearToOklch(c.r, c.g, c.b);
-  const h = (hDeg * Math.PI) / 180;
+  // Two reserved hues keep their color at any brightness: needs-me indigo and crashed orange.
+  const hueOf = (name) => { const c = color(name); return (linearToOklch(c.r, c.g, c.b)[2] * Math.PI) / 180; };
+  const h = hueOf('NEEDS_ME');
+  const h2 = hueOf('CRASHED');
   const f = (x) => x.toFixed(6);
   const glsl = /* glsl */ `
     // OKLab of a linear sRGB color (Ottosson); only a and b are needed.
@@ -90,7 +90,8 @@ function installHuePreservingToneMap(outputPass) {
       vec3 lab = czOklab(c);
       float C = length(lab.yz);
       if (lab.x <= 1e-5 || C <= 1e-6) return aces;
-      float cosd = dot(lab.yz / C, vec2(${f(Math.cos(h))}, ${f(Math.sin(h))}));
+      float cosd = max(dot(lab.yz / C, vec2(${f(Math.cos(h))}, ${f(Math.sin(h))})),
+                       dot(lab.yz / C, vec2(${f(Math.cos(h2))}, ${f(Math.sin(h2))})));
       float w = smoothstep(${f(Math.cos((HUE_NONE_DEG * Math.PI) / 180))}, ${f(Math.cos((HUE_FULL_DEG * Math.PI) / 180))}, cosd)
               * smoothstep(0.08, 0.16, C / lab.x);   // C/L is exposure-invariant in OKLab
       if (w <= 0.0) return aces;
@@ -111,6 +112,49 @@ function installHuePreservingToneMap(outputPass) {
     .replace(call, 'gl_FragColor.rgb = cosmosToneMap( gl_FragColor.rgb );');
   mat.needsUpdate = true;
 }
+
+// Edge blur (owner, 2026-11-02): the middle of the screen stays fully sharp so
+// planets, moons and asteroids keep their detail; blur fades in only toward the
+// screen edges. Replaces the depth-of-field BokehPass, which blurred anything
+// nearer or farther than the star (and re-rendered the scene for depth).
+const EDGE_BLUR_SHADER = {
+  name: 'EdgeBlur',
+  uniforms: {
+    tDiffuse: { value: null },
+    uRes: { value: new THREE.Vector2(1, 1) },
+    uStrength: { value: 0 },
+    uMaxPx: { value: 7 },
+  },
+  vertexShader: /* glsl */ `
+varying vec2 vUv;
+void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform vec2 uRes;
+uniform float uStrength;
+uniform float uMaxPx;
+varying vec2 vUv;
+void main() {
+  vec4 base = texture2D(tDiffuse, vUv);
+  // Distance from the center, 0 in the middle, 1 at a corner (aspect-correct).
+  vec2 c = (vUv - 0.5) * vec2(uRes.x / uRes.y, 1.0);
+  float d = length(c) / length(vec2(uRes.x / uRes.y, 1.0) * 0.5);
+  float k = smoothstep(0.5, 1.0, d) * uStrength;
+  if (k < 0.01) { gl_FragColor = base; return; }
+  vec2 px = k * uMaxPx / uRes;
+  vec4 acc = base;
+  float wsum = 1.0;
+  // 16-tap golden-angle disc.
+  for (int i = 1; i <= 16; i++) {
+    float fi = float(i);
+    float r = sqrt(fi / 16.0);
+    float a = fi * 2.39996323;
+    acc += texture2D(tDiffuse, vUv + vec2(cos(a), sin(a)) * r * px);
+    wsum += 1.0;
+  }
+  gl_FragColor = acc / wsum;
+}`,
+};
 
 const MONO_SHADER = {
   name: 'CosmosMonoShader',
@@ -188,8 +232,8 @@ export function createEngine(canvas, opts = {}) {
   monoPass.enabled = false;
   const outputPass = new OutputPass();
   installHuePreservingToneMap(outputPass);
-  // Depth of field: off unless setDepthOfField turns it on (only when focused on one system).
-  const dofPass = new BokehPass(scene, camera, { focus: 100, aperture: 0.00012, maxblur: 0.006 });
+  // Edge blur: off unless setDepthOfField turns it on (only when focused on one system).
+  const dofPass = new ShaderPass(EDGE_BLUR_SHADER);
   dofPass.enabled = false;
   composer.addPass(renderPass);
   composer.addPass(dofPass);
@@ -202,6 +246,7 @@ export function createEngine(canvas, opts = {}) {
     target: new THREE.Vector3(...DEFAULT_CAMERA.target),
     minDist: 3,
     maxDist: 4000,
+    keyboard: opts.keyboard !== false,
   });
 
   const clock = new THREE.Clock(false);
@@ -483,17 +528,19 @@ export function createEngine(canvas, opts = {}) {
     setFrameRates,
     setDebugView,
     /**
-     * Depth of field. `focusDist` is the distance (world units) that stays sharp;
-     * `strength` 0..1 eases the blur in and out. Off when strength is 0.
+     * Soft screen edges (named for the depth of field it replaced). The middle of the
+     * screen is always sharp; `strength` 0..1 eases the edge blur in and out.
+     * `focusDist` is accepted for compatibility and ignored. Off when strength is 0.
      */
     setDepthOfField({ enabled = false, focusDist = 100, strength = 1 } = {}) {
       const on = enabled && strength > 0.01;
       dofPass.enabled = on;
       if (!on) return;
       const u = dofPass.uniforms;
-      u.focus.value = focusDist;
-      u.aperture.value = 0.00012 * strength * (120 / Math.max(30, focusDist));
-      u.maxblur.value = 0.006 * strength;
+      u.uStrength.value = strength;
+      u.uRes.value.set(ctx.resolution.x, ctx.resolution.y);
+      u.uMaxPx.value = 7 * (ctx.resolution.y / 1080 + 0.5);
+      void focusDist;   // edge blur keeps the whole middle of the screen sharp, whatever the distance
     },
     dispose,
     /** Current render-clock time t (seconds). */

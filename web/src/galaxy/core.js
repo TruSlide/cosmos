@@ -74,7 +74,8 @@ void main() {
   float r = length(vUv);
   if (r > 1.0) discard;
   // Nucleus: compact, HDR (blooms) only when sessions are working.
-  float nucleus = exp(-r * r / 0.0009) * (0.45 + 1.6 * uAct);
+  // Kept small and soft: the Tree of Knowledge stands in the middle (2026-11-08).
+  float nucleus = exp(-r * r / 0.0009) * (0.45 + 1.6 * uAct) * 0.3;
   // Bulge: two exponentials, the broad one keeps the core a landmark when idle.
   float bulge = exp(-r / 0.07) * (0.11 + 0.16 * uAct) + exp(-r / 0.24) * 0.05;
   float edge = 1.0 - smoothstep(0.75, 1.0, r);

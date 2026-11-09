@@ -614,6 +614,8 @@ export function createReader(opts = {}) {
         procStart: typeof j.procStart === 'string' ? j.procStart : null,
         kind: typeof j.kind === 'string' ? j.kind : null,
         entrypoint: typeof j.entrypoint === 'string' ? j.entrypoint : null,
+        // The desktop app's own id for the session (opens it in the app: claude://claude.ai/epitaxy/<id>).
+        appSession: typeof j.hostSessionId === 'string' && /^local_[A-Za-z0-9-]{8,64}$/.test(j.hostSessionId) ? j.hostSessionId : null,
         name: typeof j.name === 'string' ? j.name : null,
         nameSource: typeof j.nameSource === 'string' ? j.nameSource : null,
         version: typeof j.version === 'string' ? j.version : null,

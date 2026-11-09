@@ -2,7 +2,7 @@
 //
 // Bottom-center bar. Range presets (today, yesterday, last 7 days, custom),
 // play/pause, speeds 1× 60× 600× 3 600× 21 600×, a density strip of the real
-// events in the range (needs-me ticks in the reserved orange, errors in the
+// events in the range (needs-me ticks in the reserved indigo, errors in the
 // error magenta, compactions in white), and a draggable cursor.
 // While store.time.mode === 'history' a large HISTORY · DEMO badge sits in the
 // top bar (click it to go back to live) and the HUD gets a thin demo frame.

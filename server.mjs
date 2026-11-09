@@ -144,7 +144,6 @@ const STATUS_TEXT = { 400: 'Bad request', 403: 'Forbidden', 404: 'Not found' };
 const settings = loadSettings(SETTINGS_PATH);
 const security = createSecurity({ port: PORT });
 const store = createStore({ cacheDir: CACHE_DIR, settings });
-store.writeLaunchConfig(settings.launch).catch((err) => console.error('cosmos: launch-config:', err.code || err.message));
 const claudeSettings = createClaudeSettings({ cosmosRoot: ROOT, backupDir: path.join(CACHE_DIR, 'backups') });
 
 // The data layer (server/model.mjs, DATA-CORE). If it cannot load, the page,
@@ -170,8 +169,15 @@ try {
   model = null;
 }
 const diag = model ? createDiag({ model, store, settings: () => api.settings(), cacheDir: CACHE_DIR, cosmosRoot: ROOT }) : null;
+const { createKnowledge } = await import('./server/knowledge.mjs');
+const { createPending } = await import('./server/pending.mjs');
+const pending = createPending();
+// Codex crystal: project roots are the arms' folders (read-only index of saved knowledge).
+const knowledge = createKnowledge({
+  projectRoots: () => (model ? [...model.sessions().values()].map((r) => r.arm?.key).filter(Boolean) : []),
+});
 api = createApi({
-  model, store, security, diag, claudeSettings,
+  model, store, security, diag, claudeSettings, knowledge, pending,
   settingsPath: SETTINGS_PATH, limitsPath: LIMITS_PATH, root: ROOT, port: PORT,
   settings, limits: loadLimits(LIMITS_PATH),
 });
@@ -276,6 +282,9 @@ server.listen(PORT, HOST, () => {
     await api.setLoaded();
     store.saveState(model.readerState());
     console.log(`cosmos: ${model.sessions().size} sessions loaded in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+    // Background notifications: crashes and long waits reach you even with Cosmos closed.
+    const { createNotifier } = await import('./server/notify.mjs');
+    createNotifier({ model, settings: () => api.settings() }).start();
   }).catch((err) => {
     console.error('cosmos: data layer failed to start:', err?.stack || err);
   });

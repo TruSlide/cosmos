@@ -410,6 +410,7 @@ test('real: first full scan time and record invariants', { skip: !REAL }, async 
   const arms = new Map();
   for (const r of recs.values()) arms.set(r.arm.name, (arms.get(r.arm.name) || 0) + 1);
   console.log('# arms', JSON.stringify([...arms]));
+  for (const r of recs.values()) if (r.cwd && r.cwd.includes('/atlas/')) assert.equal(r.arm.name, 'atlas');
 });
 
 test('real: state of currently running sessions is working, my-move or needs-me (dead only after a full idle day)', { skip: !REAL }, async () => {

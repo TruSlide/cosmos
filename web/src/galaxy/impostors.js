@@ -20,7 +20,7 @@ import * as THREE from 'three';
 import { color } from '../lib/palette.js';
 import { ATMOS_GLSL } from './core.js';
 
-export const IMP_MODE = Object.freeze({ WORKING: 0, NEEDS: 1, MY_MOVE: 2, IDLE: 3, DEAD: 4, CRASHED: 5, HUSK: 6 });
+export const IMP_MODE = Object.freeze({ WORKING: 0, NEEDS: 1, MY_MOVE: 2, IDLE: 3, DEAD: 4, CRASHED: 5, HUSK: 6, FLOURISH: 7 });
 
 const VERT = /* glsl */ `
 attribute vec3 iPos;
@@ -103,6 +103,10 @@ void main() {
   } else if (mode < 4.5) {
     // Dead: a fixed ember. No motion, no pulse.
     c += uCinder * exp(-r * r / 0.004) * 0.9 + uCinderRim * ring(r, 0.11, 0.015) * 0.35;
+  } else if (mode > 6.5) {
+    // Flourishing (archived or closed cleanly): a calm, healthy body in a soft green-teal glow.
+    c += vCol * (exp(-r * r / 0.005) * 2.0 + exp(-r / 0.1) * 0.25) * bright;
+    c += vec3(0.22, 0.7, 0.5) * exp(-r / 0.2) * 0.14 * (1.0 - smoothstep(0.6, 1.0, r));
   } else if (mode < 5.5) {
     // Crashed: dim remnant point in a frozen shell of shards.
     c += uRemCore * exp(-r * r / 0.0025) * 1.4;
@@ -114,6 +118,13 @@ void main() {
   } else {
     // Husk: what is left of a session whose transcript is gone.
     c += uCinderRim * ring(r, 0.3, 0.012) * 0.6;
+  }
+  // Death cycle (idle / dead, phase passed in the activity slot): the collapse
+  // shows from afar as one expanding white-blue shock ring.
+  if (mode > 2.5 && mode < 4.5 && act > 0.8 && act < 0.97) {
+    float k = (act - 0.8) / 0.17;
+    c += mix(vec3(1.0), uDiskOut, 0.4) * ring(r, 0.12 + 0.75 * sqrt(k), 0.03) * (1.0 - k) * 1.4;
+    c += vec3(1.0) * exp(-r * r / 0.004) * 3.0 * (1.0 - smoothstep(0.0, 0.2, k));
   }
   if (storm > 0.001) {
     // Storm: magenta flicker on the halo, aperiodic (two incommensurate noises).

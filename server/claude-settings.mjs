@@ -1,9 +1,9 @@
 // The ONLY code in Cosmos that writes under ~/.claude, and only to
 // ~/.claude/settings.json (GALAXY_CONTRACT §3.8, write W10).
 //
-// Two changes are allowed, nothing else:
+// One change is allowed, nothing else:
 //   - cleanupPeriodDays: an integer 1..3650 (how long Claude Code keeps transcripts)
-//   - launchHook on|off: the Cosmos SessionStart hook (DATA_SPEC §6)
+// (The launch-prompt hook was removed at the owner's request, 2026-11-05/08.)
 // Every apply re-reads the file, refuses if it changed since the preview
 // (hash), copies the exact current bytes to cosmos/cache/backups/ first, then
 // writes through settings.json.cosmos-tmp + rename. Other keys keep their order.
@@ -14,7 +14,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { httpError } from './security.mjs';
 
-const HOOK_MARK = 'cosmos/hooks/cosmos-offer.sh';
 const CONTEXT = 3;
 
 function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('hex'); }
@@ -73,21 +72,11 @@ export function createClaudeSettings({
   claudeHome = path.join(os.homedir(), '.claude'),
   cosmosRoot,
   backupDir,
-  homeDir = os.homedir(),
 } = {}) {
   if (!cosmosRoot) throw new Error('createClaudeSettings needs cosmosRoot');
   const file = path.join(claudeHome, 'settings.json');
   const tmpFile = path.join(claudeHome, 'settings.json.cosmos-tmp');
   const backups = backupDir || path.join(cosmosRoot, 'cache', 'backups');
-  const hookScript = path.join(cosmosRoot, 'hooks', 'cosmos-offer.sh');
-  // Same spelling as the entry already installed: "$HOME/…" when under home.
-  const hookCommand = hookScript.startsWith(homeDir + path.sep)
-    ? `"$HOME${hookScript.slice(homeDir.length)}"`
-    : `"${hookScript}"`;
-  const hookEntry = () => ({
-    matcher: 'startup',
-    hooks: [{ type: 'command', command: hookCommand, async: true, timeout: 10 }],
-  });
 
   function readRaw() {
     let buf;
@@ -106,19 +95,9 @@ export function createClaudeSettings({
     return { buf, text, obj, exists: true };
   }
 
-  function isCosmosHook(h) {
-    return h && typeof h.command === 'string' && h.command.includes(HOOK_MARK);
-  }
-
-  function hasLaunchHook(obj) {
-    const groups = obj?.hooks?.SessionStart;
-    if (!Array.isArray(groups)) return false;
-    return groups.some((g) => Array.isArray(g?.hooks) && g.hooks.some(isCosmosHook));
-  }
-
   function summary(obj) {
     const c = obj.cleanupPeriodDays;
-    return { cleanupPeriodDays: Number.isInteger(c) ? c : (typeof c === 'number' ? c : null), launchHook: hasLaunchHook(obj) };
+    return { cleanupPeriodDays: Number.isInteger(c) ? c : (typeof c === 'number' ? c : null) };
   }
 
   function read() {
@@ -134,12 +113,7 @@ export function createClaudeSettings({
       if (n < 1 || n > 3650) throw httpError(400, 'bad-value', 'cleanupPeriodDays must be a whole number of days from 1 to 3650.');
       return { change, value: n };
     }
-    if (change === 'launchHook') {
-      const v = value === true ? 'on' : value === false ? 'off' : String(value ?? '');
-      if (v !== 'on' && v !== 'off') throw httpError(400, 'bad-value', 'launchHook must be "on" or "off".');
-      return { change, value: v };
-    }
-    throw httpError(400, 'bad-change', 'Cosmos can only change cleanupPeriodDays or the launch-prompt hook.');
+    throw httpError(400, 'bad-change', 'Cosmos can only change cleanupPeriodDays.');
   }
 
   /** New object with the change applied; key order of everything else kept. */
@@ -149,32 +123,6 @@ export function createClaudeSettings({
       next.cleanupPeriodDays = value;       // existing key keeps its place; a new key goes last
       return next;
     }
-    if (value === 'on') {
-      if (hasLaunchHook(next)) return next;
-      if (next.hooks === undefined) next.hooks = {};
-      if (next.hooks === null || typeof next.hooks !== 'object' || Array.isArray(next.hooks)) {
-        throw httpError(409, 'hooks-shape', '"hooks" in settings.json is not an object, so Cosmos will not touch it.');
-      }
-      if (next.hooks.SessionStart === undefined) next.hooks.SessionStart = [];
-      if (!Array.isArray(next.hooks.SessionStart)) {
-        throw httpError(409, 'hooks-shape', '"hooks.SessionStart" in settings.json is not a list, so Cosmos will not touch it.');
-      }
-      next.hooks.SessionStart.push(hookEntry());
-      return next;
-    }
-    // off: remove only Cosmos's own hook commands; drop what that empties.
-    const groups = next.hooks?.SessionStart;
-    if (!Array.isArray(groups)) return next;
-    const kept = [];
-    for (const g of groups) {
-      if (!g || !Array.isArray(g.hooks)) { kept.push(g); continue; }
-      const hooks = g.hooks.filter((h) => !isCosmosHook(h));
-      if (hooks.length === g.hooks.length) { kept.push(g); continue; }
-      if (hooks.length > 0) kept.push({ ...g, hooks });
-    }
-    if (kept.length > 0) next.hooks.SessionStart = kept;
-    else delete next.hooks.SessionStart;
-    if (Object.keys(next.hooks).length === 0) delete next.hooks;
     return next;
   }
 
@@ -191,14 +139,6 @@ export function createClaudeSettings({
         ? `cleanupPeriodDays is already ${value} days; nothing would change.`
         : `Claude Code would keep session transcripts for ${value} days (now: ${was}). Older transcripts are deleted by Claude Code itself; Cosmos only keeps its own summaries in cosmos/cache.`);
       if (!noop && value < 30) parts.push('Warning: a short period means Cosmos can replay less history from transcripts.');
-    } else if (value === 'on') {
-      parts.push(noop
-        ? 'The Cosmos launch-prompt hook is already installed; nothing would change.'
-        : 'Adds one SessionStart hook that runs cosmos/hooks/cosmos-offer.sh when you start a session. It prints nothing and costs zero tokens; it only shows the "Open Cosmos?" dialog when no Cosmos window is open.');
-    } else {
-      parts.push(noop
-        ? 'No Cosmos launch-prompt hook is installed; nothing would change.'
-        : 'Removes only the Cosmos launch-prompt hook. Any other hooks stay exactly as they are.');
     }
     parts.push('It does not change anything else in the file.');
     if (reformatted) parts.push('Note: your file is not in standard 2-space JSON layout, so its spacing will be normalized; values and key order stay the same.');

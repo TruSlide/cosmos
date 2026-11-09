@@ -147,18 +147,16 @@ test('POST guards: token, Origin, Host, content type', async () => {
   assert.equal((await req('POST', '/api/settings', { body: big, headers: good() })).status, 413);
 });
 
-test('settings: invalid saves nothing; valid writes settings.json and launch-config', async () => {
+test('settings: invalid saves nothing; valid writes settings.json', async () => {
   const bad = await req('POST', '/api/settings', { body: { settings: { storm: { count: 'many' } } }, headers: good() });
   assert.equal(bad.status, 400);
   assert.ok(bad.json.errors.length >= 1);
-  const ok = await req('POST', '/api/settings', { body: { settings: { launch: { enabled: false } } }, headers: good() });
+  const ok = await req('POST', '/api/settings', { body: { settings: { notify: { needs: false } } }, headers: good() });
   assert.equal(ok.status, 200);
   const saved = JSON.parse(fs.readFileSync(path.join(tmp, 'settings.json'), 'utf8'));
-  assert.equal(saved.launch.enabled, false);
-  await new Promise((r) => setTimeout(r, 50));
-  assert.match(fs.readFileSync(path.join(tmp, 'cache', 'launch-config'), 'utf8'), /^enabled=0\nentrypoints=cli claude-desktop claude-vscode\n$/);
+  assert.equal(saved.notify.needs, false);
   const g = await req('GET', '/api/settings');
-  assert.equal(g.json.settings.launch.enabled, false);
+  assert.equal(g.json.settings.notify.needs, false);
   assert.ok(g.json.defaults);
 });
 
@@ -288,7 +286,7 @@ test('session, history range, diag report and error text', async () => {
 
 test('claude settings endpoints against a temp file', async () => {
   const g = await req('GET', '/api/claude-settings');
-  assert.deepEqual(g.json, { cleanupPeriodDays: null, launchHook: false, path: path.join(claudeHome, 'settings.json') });
+  assert.deepEqual(g.json, { cleanupPeriodDays: null, path: path.join(claudeHome, 'settings.json') });
   const p = await req('GET', '/api/claude-settings/preview?change=cleanupPeriodDays&value=90');
   assert.equal(p.status, 200);
   assert.ok(p.json.diff.some((d) => d.op === '+' && d.line.includes('"cleanupPeriodDays": 90')));

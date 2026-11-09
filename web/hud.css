@@ -14,10 +14,11 @@
   --glass-border: rgba(207, 224, 255, 0.14); --blur: 14px;
   --text: rgba(236, 242, 255, 0.92); --text-dim: rgba(207, 224, 255, 0.62); --text-faint: rgba(207, 224, 255, 0.38);
   --accent: #cfe0ff;                       /* STAR_FILL_0: neutral UI accent */
-  --needs-me: #ff5f1f;                     /* RESERVED: needs-me only */
-  --needs-me-core: #fff1e6;                /* RESERVED: needs-me only */
-  --my-move: #3ee6c8; --working: #e8f1ff; --working-disk: #6a7cff;
-  --idle: #8c8fb3; --dead: #5b6378; --crashed: #8c8fb3;
+  --needs-me: #6d52ff;                     /* RESERVED: needs-me only (indigo; a touch lighter than the 3D #5B3CFF so text reads on dark glass) */
+  --needs-me-core: #ece8ff;                /* RESERVED: needs-me only */
+  --my-move: #3ee6c8; --working: #e8f1ff; --working-disk: #3e9bff;
+  --idle: #8c8fb3; --dead: #5b6378;
+  --crashed: #ff6a00; --crashed-core: #fff1e6;   /* RESERVED: crashed only (electric orange; louder than needs-me) */
   --error: #ff3d9a; --ship: #a8ecff; --agent: #8cffc1; --compaction: #fff5e8;
   --diff-add: #8cffc1; --diff-del: #ff3d9a;   /* never orange */
   --radius: 10px; --gap: 8px; --pad: 10px;
@@ -150,7 +151,7 @@ kbd { font: 600 var(--fs-xs)/1 var(--font-mono); padding: 2px 5px; border-radius
 /* ------------------------------------------------------------ panels */
 .hud-col { position: absolute; top: calc(var(--topbar-h) + 6px); bottom: 12px; width: var(--col-w); display: flex; flex-direction: column; gap: var(--gap); pointer-events: none; }
 .hud-col--left { left: 12px; }
-.hud-col--right { right: 12px; }
+.hud-col--right { right: 12px; top: calc(var(--topbar-h) + 6px + var(--pip-space, 0px)); }   /* the PiP window docks above it */
 .hud--panels-hidden .hud-panel { display: none !important; }
 .hud-drop-hint { position: absolute; top: calc(var(--topbar-h) + 6px); bottom: 12px; width: 6px; border-radius: 3px; background: var(--accent); opacity: 0; pointer-events: none;
   transition: opacity var(--dur) var(--ease); }
@@ -481,3 +482,71 @@ select.hud-input { padding-right: 4px; }
   .hud-needs-pill { box-shadow: 0 0 0 2px var(--needs-me) !important; }
   .hud-row--needs > .hud-glyph { outline: 1px solid var(--needs-me); outline-offset: 2px; border-radius: 3px; }
 }
+
+/* Codex (galactic center): recent knowledge list in the Selected panel. */
+.hud-codex__head { width: 100%; margin: 4px 0 2px; font-size: var(--fs-sm); color: var(--text-faint); }
+.hud-codex { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.hud-codex__item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 8px; font-size: var(--fs-sm); }
+.hud-codex__kind { color: #ffc83d; white-space: nowrap; }
+.hud-codex__name { color: var(--text); overflow-wrap: anywhere; }
+.hud-codex__desc { grid-column: 2; color: var(--text-faint); overflow-wrap: anywhere; }
+
+/* Selected panel: plain-words explanation (moved here from the hover popup). */
+.hud-sel__about { padding: 0 10px 4px; font-size: var(--fs-sm); line-height: 1.45; }
+.hud-sel__about:empty { display: none; }
+.hud-sel__what { margin: 2px 0 4px; color: var(--text); }
+.hud-sel__means { margin: 0 0 6px; color: var(--text-faint); }
+.hud-sel__spot { margin: 4px 0 2px; color: var(--text-faint); }
+.hud-sel__spot b { color: var(--text); font-weight: 500; }
+.hud-kv--extra { padding: 2px 0 4px; }
+
+/* Parking Lot in the Needs me panel (same list as /pending). */
+.hud-park { border-top: 1px solid var(--line); margin-top: 4px; padding: 2px 8px 6px; font-size: var(--fs-sm); }
+.hud-park__head { cursor: pointer; padding: 5px 2px; color: var(--text-faint); letter-spacing: 0.06em; text-transform: uppercase; font-size: 11px; list-style: none; }
+.hud-park__head::-webkit-details-marker { display: none; }
+.hud-park__head::before { content: "▸ "; }
+.hud-park[open] > .hud-park__head::before { content: "▾ "; }
+.hud-park__count { color: var(--text); }
+.hud-park__group { margin: 6px 0 2px; color: var(--text-faint); font-size: 11px; }
+.hud-park__item { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.hud-park__text { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-park__age { flex: none; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.hud-park__empty { color: var(--text-faint); padding: 2px 0; }
+.hud-codex__item.is-click { cursor: pointer; border-radius: 6px; padding: 2px 4px; margin: 0 -4px; }
+.hud-codex__item.is-click:hover { background: rgba(207, 224, 255, 0.05); }
+.hud-codex__kind.is-dim { color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+/* Crashed block (louder than needs-me): top of the Needs me panel. */
+.hud-crash { padding: 4px 6px 2px; }
+.hud-crash__row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; margin-bottom: 4px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--crashed); background: color-mix(in srgb, var(--crashed) 14%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--crashed) 30%, transparent); animation: hud-crash-beat 1.2s infinite; }
+.hud-crash__glyph { color: var(--crashed); font-size: 16px; line-height: 1; }
+.hud-crash__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hud-crash__title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-crash__sub { color: var(--crashed); font: 600 10px/1.2 var(--font-mono, ui-monospace, monospace); letter-spacing: 0.06em; }
+.hud-btn--crash { border-color: var(--crashed) !important; color: var(--crashed-core) !important; }
+@keyframes hud-crash-beat { 0%, 9%, 18%, 27%, 100% { box-shadow: 0 0 10px color-mix(in srgb, var(--crashed) 22%, transparent); } 4%, 22% { box-shadow: 0 0 22px color-mix(in srgb, var(--crashed) 60%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .hud-crash__row { animation: none; } }
+
+/* Totals: hover a state tile to list its sessions. */
+.hud-totals__state[data-mode]:not([data-mode="dead"]) { cursor: default; }
+.hud-totals-pop { position: fixed; z-index: 65; width: 280px; max-height: min(60vh, 460px); overflow: auto; padding: 6px;
+  border-radius: 10px; background: var(--glass-strong); border: 1px solid var(--glass-border); box-shadow: var(--shadow);
+  backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); pointer-events: auto; }
+.hud-totals-pop[hidden] { display: none; }
+.hud-totals-pop__head { padding: 4px 6px 6px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
+.hud-totals-pop__row { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px; width: 100%; padding: 5px 6px; border-radius: 7px; cursor: pointer; }
+.hud-totals-pop__row:hover, .hud-totals-pop__row:focus-visible { background: var(--hover); }
+.hud-totals-pop__t { font-size: var(--fs-sm); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-totals-pop__s { font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-totals-pop__empty { padding: 4px 6px; font-size: 11px; color: var(--text-faint); }
+
+/* Calmer start (owner, 2026-11-08): collapsed panels take only their header,
+   Totals is capped so Sessions keeps room, and the map stays clear of Record. */
+.hud-panel.is-collapsed { min-height: 0 !important; }
+.hud-panel--totals { max-height: 34%; }
+.hud-panel--totals .hud-panel__body { overflow-y: auto; }
+.hud-panel--live { min-height: 180px; }
+.hud-col--right { bottom: 60px !important; }
+.hud-codex__kind.is-warn { color: #e9b44c; font-weight: 600; }

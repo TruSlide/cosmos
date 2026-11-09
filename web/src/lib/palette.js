@@ -4,13 +4,16 @@
 // working space (three's ColorManagement converts on setHex), which is what
 // shaders and the HDR composer expect.
 //
-// NEEDS_ME / NEEDS_ME_CORE are reserved for the quasar (star.js only).
+// NEEDS_ME / NEEDS_ME_CORE (indigo) are reserved for the quasar and its beacons;
+// CRASHED / CRASHED_CORE (electric orange) for crashed sessions (owner, 2026-11-08).
 
 import * as THREE from 'three';
 
 export const PALETTE = Object.freeze({
-  NEEDS_ME: 0xFF5F1F,
-  NEEDS_ME_CORE: 0xFFF1E6,
+  NEEDS_ME: 0x5B3CFF,
+  NEEDS_ME_CORE: 0xEDE8FF,
+  CRASHED: 0xFF6A00,
+  CRASHED_CORE: 0xFFF1E6,
   VOID: 0x02030A,
   DUST_VIOLET: 0x1B1238,
   DUST_TEAL: 0x0B2A33,
@@ -19,11 +22,11 @@ export const PALETTE = Object.freeze({
   STAR_FILL_80: 0xFFB8C0,
   STAR_FILL_100: 0xE3263F,
   DISK_INNER: 0xE8F1FF,
-  DISK_OUTER: 0x6A7CFF,
+  DISK_OUTER: 0x3E9BFF,
   DISK_DOPPLER: 0xBFE6FF,
   MY_MOVE: 0x3EE6C8,
-  THINK_DEEP: 0x2C1A7A,
-  THINK_VIOLET: 0x6B4BFF,
+  THINK_DEEP: 0x0F2E4A,
+  THINK_VIOLET: 0x3A9CC8,
   THINK_FILAMENT: 0x9AE6FF,
   SHIP_TOOL: 0xA8ECFF,
   SHIP_AGENT: 0x8CFFC1,
@@ -37,6 +40,22 @@ export const PALETTE = Object.freeze({
   CINDER_RIM: 0x5B6378,
   ROCK: 0x6E7486,
   ROCK_SPEC: 0xC9D2E6,
+  // Galactic center: knowledge-beam highlight and the "me" star.
+  CODEX_LIGHT: 0xFFE7A3,
+  ME_PEARL: 0xF4F1FF,
+  ME_HALO: 0xD9D2FF,
+  // Tree of knowledge (2026-11-08): pearlescent thin-film sheen over dark bark.
+  // The warm stop is amber-gold (OKLCH ~81°), well clear of the needs-me band.
+  TREE_GREEN: 0x4FD6A6,
+  TREE_BLUE: 0x4AA8E8,
+  TREE_INDIGO: 0x9A92C8,   // pearl violet, kept low in chroma so it never reads as needs-me indigo
+  TREE_AMBER: 0xE9B44C,
+  TREE_BARK: 0x1A1630,
+  // Deep sky: background only, kept dim (never brighter than a working star).
+  SKY_BLUE: 0x3FB6FF,
+  SKY_TEAL: 0x5CE1E6,
+  SKY_VIOLET: 0xC27AD6,
+  SKY_WHITE: 0xEAF0FF,
 });
 
 /** Planet base colors, picked by hash of the file id. */
@@ -148,8 +167,9 @@ export function linearToOklch(r, g, b) {
   return [lab[0], C, h];
 }
 
-/** Reserved NEEDS ME band in OKLCH: hue 28°–55° with chroma above 0.09. */
-export const RESERVED_HUE = Object.freeze({ min: 28, max: 55, minChroma: 0.09 });
+/** Reserved bands in OKLCH (chroma above 0.09): needs-me indigo (NEEDS_ME at 279°) and crashed orange (CRASHED at 44.8°). */
+export const RESERVED_HUE = Object.freeze({ min: 268, max: 292, minChroma: 0.09 });
+export const RESERVED_CRASH_HUE = Object.freeze({ min: 32, max: 58, minChroma: 0.09 });
 
 /**
  * QA: true when a color sits in the reserved NEEDS ME orange band.
@@ -167,5 +187,6 @@ export function isReservedHue(c) {
     ({ r, g, b } = c);
   }
   const [, C, h] = linearToOklch(r, g, b);
-  return C > RESERVED_HUE.minChroma && h >= RESERVED_HUE.min && h <= RESERVED_HUE.max;
+  if (C <= RESERVED_HUE.minChroma) return false;
+  return (h >= RESERVED_HUE.min && h <= RESERVED_HUE.max) || (h >= RESERVED_CRASH_HUE.min && h <= RESERVED_CRASH_HUE.max);
 }
